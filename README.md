@@ -59,9 +59,22 @@ docs/design.md                production design note
 docs/ASSIGNMENT.md            original assignment
 ```
 
-The assignment's `transform.py` / `marts.sql` are the dbt models; the
-assignment's validation requirement is covered by dbt tests plus
-`src/validate.py`.
+Rule of thumb for the layout: **dbt owns every table-to-table
+transformation; `sql/` holds the edges** — the bronze DDL executed by the
+Python loader on the way in, and the read-only business questions on the
+way out.
+
+### Mapping to the assignment's expected deliverables
+
+This project uses the assignment's Option B (dbt), so two expected files
+exist in dbt form:
+
+| assignment expects | here | why |
+|---|---|---|
+| `src/transform.py` | `dbt/models/` | transformations are versioned, tested SQL models instead of a script |
+| `sql/marts.sql` | `dbt/models/marts/*.sql` | same marts, one file per model with its grain documented |
+| `rejected_events` from ingestion | `bronze.raw_ingest_rejections` + `silver.rejected_events` | parse failures captured at ingest; the silver model unions them with validation rejects so all rejections live in one queryable table |
+| everything else | identical names and paths | — |
 
 ## Rejection rules
 
