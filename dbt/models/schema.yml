@@ -1,0 +1,115 @@
+version: 2
+
+models:
+  - name: stg_events
+    description: >
+      One row per unique, valid event. All marts read from here; nothing
+      downstream re-parses raw JSON.
+    columns:
+      - name: event_id
+        tests: [unique, not_null]
+      - name: event_ts
+        tests: [not_null]
+      - name: account_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_accounts')
+                field: account_id
+      - name: user_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_users')
+                field: user_id
+      - name: event_name
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - user_invited
+                  - user_signed_up
+                  - session_started
+                  - prompt_submitted
+                  - ai_response_generated
+                  - response_accepted
+                  - response_rejected
+                  - workflow_completed
+                  - error_raised
+      - name: prompt_tokens
+        tests: [non_negative]
+      - name: completion_tokens
+        tests: [non_negative]
+      - name: latency_ms
+        tests: [non_negative]
+      - name: cost_usd
+        tests: [non_negative]
+
+  - name: rejected_events
+    description: Explainable audit trail of every rejected line or event.
+    columns:
+      - name: rejection_reason
+        tests: [not_null]
+      - name: source_file
+        tests: [not_null]
+      - name: line_number
+        tests: [not_null]
+
+  - name: dim_accounts
+    description: One row per account.
+    columns:
+      - name: account_id
+        tests: [unique, not_null]
+
+  - name: dim_users
+    description: One row per user; email masked to domain only.
+    columns:
+      - name: user_id
+        tests: [unique, not_null]
+      - name: account_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_accounts')
+                field: account_id
+
+  - name: fact_ai_interactions
+    description: One row per AI model call (ai_response_generated event).
+    columns:
+      - name: interaction_id
+        tests: [unique, not_null]
+      - name: model
+        tests: [not_null]
+      - name: latency_ms
+        tests: [not_null, non_negative]
+      - name: cost_usd
+        tests: [non_negative]
+
+  - name: fact_sessions
+    description: One row per session.
+    columns:
+      - name: session_id
+        tests: [unique, not_null]
+      - name: account_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_accounts')
+                field: account_id
+
+  - name: daily_account_metrics
+    description: One row per (event_date, account_id).
+    tests:
+      - unique_combination:
+          arguments:
+            combination: [event_date, account_id]
+    columns:
+      - name: active_users
+        tests: [not_null, non_negative]
+      - name: ai_cost_usd
+        tests: [not_null, non_negative]

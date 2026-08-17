@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+data/processed/
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+logs/
+.pytest_cache/
+dbt/.user.yml

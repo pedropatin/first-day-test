@@ -1,0 +1,9 @@
+# Local DuckDB profile. FIRSTDAY_DB lets tests point dbt at a temporary
+# database; the default matches the path written by src/ingest.py.
+firstday:
+  target: local
+  outputs:
+    local:
+      type: duckdb
+      path: "{{ env_var('FIRSTDAY_DB', '../data/processed/firstday.duckdb') }}"
+      threads: 4

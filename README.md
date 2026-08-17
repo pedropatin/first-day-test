@@ -1,279 +1,137 @@
-# First Day Data Engineer Take-Home Assignment
+# First Day — Data Engineering Take-Home
 
-## Repository
+Local pipeline: raw JSONL/CSV → DuckDB → dbt models + tests → analytics and a Streamlit dashboard.
 
-- [Assignment repository](https://github.com/first-day-life/firstday-data-engineering-takehome)
-- [Provided raw input data](https://github.com/first-day-life/firstday-data-engineering-takehome/tree/main/data/raw)
+## Quickstart
 
-Clone the repository to begin:
-
-```bash
-git clone https://github.com/first-day-life/firstday-data-engineering-takehome.git
-cd firstday-data-engineering-takehome
-```
-
-## Time expectation
-
-Please spend **4–8 focused hours** on this assignment. We care more about clear tradeoffs, correctness, and maintainability than about building a large system.
-
-In your submission, tell us:
-
-- How much time you spent.
-- What you prioritized.
-- What you would improve with more time.
-- Any AI tools you used and how you verified their output.
-
-## Background
-
-First Day builds AI-powered workflows. A core data engineering responsibility is turning raw product and AI-interaction events into trustworthy datasets for product, operations, finance, and leadership.
-
-You are given raw event files that simulate product usage, AI model calls, feedback, and account metadata. Your task is to build a small local data pipeline that ingests, validates, models, and exposes analytics-ready tables.
-
-The assignment should run locally. Do not use paid cloud resources or real API keys.
-
-> **Synthetic data notice:** Every account, user, email address, identifier, timestamp, event, model interaction, token count, latency, and cost in this repository is fictional and programmatically generated for this exercise. The dataset contains no First Day customer, employee, applicant, production, or internal operational data, and no data belonging to the assignment author. Email addresses use the reserved `.example` domain. Any resemblance to a real person or organization is coincidental.
-
-## Input data
-
-The repository contains:
-
-```text
-data/raw/events_2026-08-01.jsonl
-data/raw/events_2026-08-02.jsonl
-data/raw/events_2026-08-03.jsonl
-data/raw/accounts.csv
-data/raw/users.csv
-```
-
-You can also inspect the supplied inputs directly on GitHub:
-
-- [`events_2026-08-01.jsonl`](https://github.com/first-day-life/firstday-data-engineering-takehome/blob/main/data/raw/events_2026-08-01.jsonl)
-- [`events_2026-08-02.jsonl`](https://github.com/first-day-life/firstday-data-engineering-takehome/blob/main/data/raw/events_2026-08-02.jsonl)
-- [`events_2026-08-03.jsonl`](https://github.com/first-day-life/firstday-data-engineering-takehome/blob/main/data/raw/events_2026-08-03.jsonl)
-- [`accounts.csv`](https://github.com/first-day-life/firstday-data-engineering-takehome/blob/main/data/raw/accounts.csv)
-- [`users.csv`](https://github.com/first-day-life/firstday-data-engineering-takehome/blob/main/data/raw/users.csv)
-
-Each line in an event file is intended to represent a JSON object with this shape:
-
-```json
-{
-  "event_id": "evt_123",
-  "event_ts": "2026-08-01T09:31:22Z",
-  "received_ts": "2026-08-01T09:31:25Z",
-  "account_id": "acct_001",
-  "user_id": "user_001",
-  "session_id": "sess_001",
-  "event_name": "ai_response_generated",
-  "properties": {
-    "model": "gpt-5.5",
-    "prompt_tokens": 814,
-    "completion_tokens": 241,
-    "latency_ms": 3120,
-    "cost_usd": 0.018,
-    "workflow": "onboarding",
-    "accepted": true
-  }
-}
-```
-
-Expected `event_name` values are:
-
-```text
-user_invited
-user_signed_up
-session_started
-prompt_submitted
-ai_response_generated
-response_accepted
-response_rejected
-workflow_completed
-error_raised
-```
-
-### Known data issues
-
-Your pipeline should handle these issue classes:
-
-- Duplicate `event_id` values.
-- Late-arriving events where `received_ts` is much later than `event_ts`.
-- Missing optional fields inside `properties`.
-- Malformed or nonconforming JSON lines.
-- Unknown `event_name` values.
-- Events that reference users or accounts not found in the metadata files, or inconsistent user/account pairs.
-- Invalid values that should be surfaced by data-quality checks.
-- Multiple model names and workflows.
-
-The list describes issue classes, not an exhaustive row-level answer key.
-
-## Your task
-
-Build a local data pipeline that produces trustworthy, analytics-ready data.
-
-You may use any reasonable stack. Suggested options are:
-
-```text
-Option A: Python + DuckDB + SQL
-Option B: Python + DuckDB + dbt
-Option C: Python + Postgres + SQL
-```
-
-Avoid heavy infrastructure unless it clearly improves your solution. Airflow, Kafka, Spark, and cloud services are not required.
-
-## Required deliverables
-
-Your submission should include the equivalent of:
-
-```text
-README.md
-src/
-  ingest.py
-  transform.py
-  validate.py
-sql/
-  create_tables.sql
-  marts.sql
-tests/
-  test_ingest.py
-  test_transform.py
-data/
-  raw/
-  processed/
-docs/
-  design.md
-```
-
-The exact structure may differ, but a reviewer should be able to understand and run the project without guessing.
-
-## Pipeline requirements
-
-### 1. Ingestion
-
-Load the raw JSONL and CSV files into a local analytical database.
-
-Your ingestion should:
-
-- Preserve raw events in a raw table.
-- Capture malformed or rejected rows in a rejected-events table.
-- Deduplicate events using `event_id` and document your tie-breaking rule.
-- Keep enough lineage to debug ingestion, such as source file, load timestamp, and rejection reason.
-
-Expected output tables:
-
-```text
-raw_events
-rejected_events
-raw_accounts
-raw_users
-```
-
-### 2. Validation
-
-Add basic data-quality checks. At minimum, validate that:
-
-- `event_id` is present and unique in the cleaned event table.
-- `event_ts` is parseable.
-- `account_id`, `user_id`, and `session_id` are present where required.
-- `event_name` is one of the expected values.
-- Token counts, latency, and cost are non-negative when present.
-- Account and user references are valid where possible.
-
-Validation may use Python tests, SQL checks, dbt tests, or a small custom validation report. Make rejected or failing records explainable.
-
-### 3. Modeling
-
-Create clean staging tables and analytics marts.
-
-Minimum expected tables:
-
-```text
-stg_events
-dim_accounts
-dim_users
-fact_ai_interactions
-fact_sessions
-daily_account_metrics
-```
-
-Document the grain and important assumptions for each model. The marts should answer product and business questions without requiring analysts to re-parse raw JSON.
-
-### 4. Analytics questions
-
-Include SQL queries that answer:
-
-1. Daily active users by account.
-2. Number of AI interactions by workflow and model.
-3. Median and p95 latency by model.
-4. Daily estimated AI cost by account.
-5. Session conversion funnel:
-   - session started
-   - prompt submitted
-   - AI response generated
-   - response accepted
-   - workflow completed
-6. Top accounts by rejected responses.
-7. Users with unusually high error rates.
-8. Accounts with usage growth over the three-day sample.
-
-State any metric definitions or assumptions that could reasonably be interpreted more than one way.
-
-### 5. Production design note
-
-In `docs/design.md`, explain how you would evolve this into a production pipeline. Cover:
-
-- Batch versus streaming ingestion.
-- Schema evolution.
-- Data quality and alerting.
-- Backfills and idempotency.
-- Personally identifiable information handling.
-- Cost monitoring.
-- How you would expose the data to analysts or internal tools.
-- What you intentionally skipped because of the 8–10 hour limit.
-
-## How we will run it
-
-Provide one command or a small, clearly documented set of commands, for example:
+Requires Python 3.10–3.13 and `make`.
 
 ```bash
-make setup
-make run
-make test
+make setup       # venv + pinned dependencies
+make run         # ingest -> dbt build (models + 46 tests) -> validation report
+make analytics   # answers to the 8 analytics questions
+make test        # pytest (ingestion + transform on a fixture dataset)
+make dashboard   # Streamlit dashboard at localhost:8501
 ```
 
-or:
+## How it works
 
-```bash
-docker compose up --build
+```
+data/raw/*.jsonl,*.csv
+   │  src/ingest.py          parse only; keep every parseable line verbatim
+   ▼
+raw_events / raw_ingest_rejections / raw_accounts / raw_users   (DuckDB)
+   │  dbt (dbt/models/)      type, flatten JSON, classify, dedup
+   ▼
+stg_events + rejected_events
+   │
+   ▼
+dim_accounts, dim_users, fact_ai_interactions, fact_sessions, daily_account_metrics
 ```
 
-The reviewer should be able to run the project locally from a clean checkout without hidden steps.
+Design rule: **ingestion never drops or edits data**. Lines that fail JSON
+parsing go to `raw_ingest_rejections`; everything else lands in `raw_events`
+as-is (timestamps as strings). All judgment — casting, validation, dedup —
+lives in dbt, where each rule is a readable SQL case and every rejected row
+gets a reason. An invariant test guarantees no row is ever silently lost:
 
-## Evaluation rubric
+```
+raw_events + raw_ingest_rejections == stg_events + rejected_events
+```
 
-| Area | Weight | What strong looks like |
-|---|---:|---|
-| Correctness | 25% | Handles malformed rows, duplicates, missing fields, and produces correct metrics. |
-| Data modeling | 20% | Clear grains, sensible facts and dimensions, thoughtful JSON flattening, and analyst-friendly marts. |
-| Code quality | 20% | Modular and readable code, typed where useful, with simple abstractions and no unnecessary complexity. |
-| Reproducibility | 15% | Clear instructions, pinned dependencies, a simple run path, and deterministic outputs. |
-| Data quality | 10% | Meaningful checks, explainable rejected records, and tests covering important edge cases. |
-| Product thinking | 10% | Useful metrics and a design note that explains tradeoffs and a credible production path. |
+### Layout
 
-## Optional stretch goals
+```
+src/ingest.py                 load raw files into DuckDB (idempotent per file)
+src/validate.py               validation report -> data/processed/validation_report.md
+src/run_analytics.py          runs sql/analytics/*.sql
+sql/create_tables.sql         raw-layer DDL
+sql/analytics/q1..q8.sql      one file per business question
+dbt/models/staging/           int_events_classified, stg_events, rejected_events
+dbt/models/marts/             dims, facts, daily_account_metrics
+dbt/models/schema.yml         38 schema tests (unique, not_null, relationships, non_negative)
+tests/                        pytest: ingestion + full dbt build on a fixture dataset
+dashboard/app.py              Streamlit
+docs/design.md                production design note
+docs/ASSIGNMENT.md            original assignment
+```
 
-Only attempt these after the core assignment works:
+The assignment's `transform.py` / `marts.sql` are the dbt models; the
+assignment's validation requirement is covered by dbt tests plus
+`src/validate.py`.
 
-- Add dbt models and dbt tests.
-- Add a small dashboard or notebook.
-- Add GitHub Actions for tests.
-- Add incremental loading.
-- Add a simple cost anomaly detector.
-- Add generated documentation for final tables.
+## Rejection rules
 
-## What not to spend time on
+First failing rule wins; the row goes to `rejected_events` with that reason.
 
-- Paid cloud infrastructure.
-- Complex orchestration before the core pipeline works.
-- A highly polished dashboard at the expense of correctness.
-- Large frameworks that make the project difficult to run locally.
+| order | reason | rule |
+|---|---|---|
+| 1 | `malformed_json` / `not_a_json_object` | line isn't a JSON object (ingest stage) |
+| 2 | `missing_event_id` | no event_id |
+| 3 | `unparseable_event_ts` | event_ts doesn't cast to timestamp |
+| 4 | `unknown_event_name` | not one of the 9 expected names |
+| 5 | `missing_account_id` / `missing_user_id` | always required |
+| 6 | `missing_session_id` | required except `user_invited` / `user_signed_up` |
+| 7 | `negative_metric_value` | tokens, latency, cost or duration < 0 |
+| 8 | `unknown_account` / `unknown_user` / `user_account_mismatch` | fails referential check against metadata |
+| 9 | `duplicate_event_id` | later copy of an already-kept event |
 
-We prefer a small, reliable, well-explained pipeline over an ambitious but fragile one.
+**Dedup tie-break:** first received wins — lowest `(received_ts, source_file,
+line_number)`. All duplicates in this sample are exact payload copies, so
+which copy wins doesn't change any metric; the rule just makes it deterministic.
+
+**Late events** (received_ts − event_ts > 1h) are kept and flagged `is_late`,
+and always count on the day of `event_ts`.
+
+On this sample: 725 input lines → 690 clean events + 35 rejected
+(6 malformed, 12 duplicates, 6 unknown event names, 3 negative metrics,
+5 bad references, 3 missing/invalid required fields). Full breakdown in
+`data/processed/validation_report.md` after `make run`.
+
+## Models and grains
+
+| model | grain |
+|---|---|
+| `stg_events` | one row per unique valid event |
+| `rejected_events` | one row per rejected line/event, with stage + reason + file/line |
+| `dim_accounts` / `dim_users` | one row per account / user (emails masked to domain) |
+| `fact_ai_interactions` | one row per `ai_response_generated` event |
+| `fact_sessions` | one row per session, with funnel flags and totals |
+| `daily_account_metrics` | one row per (event_date, account_id) |
+
+## Metric definitions worth stating
+
+- **Active user** = distinct user with ≥1 valid event that day.
+- **AI cost** = sum of *known* `cost_usd`; missing costs are not imputed, and
+  `uncosted_interactions` counts them so the gap is visible (9 of 138 calls).
+- **Funnel** = share of started sessions where each stage *ever* happened,
+  cumulatively (a stage only counts if all previous stages happened too).
+- **Rejection rate (Q6)** = rejected / (accepted + rejected) explicit
+  decisions, not / all AI responses — most responses get no decision event.
+- **Unusual error rate (Q7)** = above mean + 2σ of per-user rates, min 10 events.
+- **Growth (Q8)** = day-3 vs day-1 events. Three days is direction, not a trend.
+
+## What the data says
+
+- **Funnel converts 55.7%** of started sessions into completed workflows; the
+  biggest single drop is response acceptance (87.3% → 67.7%).
+- **`gpt-5.5-mini` is ~2.5× faster** than `gpt-5.5` (median 1.2s vs 3.0s) and
+  is already the top model in the onboarding workflow.
+- **Atlas Legal (acct_004) is a churn-risk signal**: highest rejection rate
+  (38.5%), usage down 50% over the sample, and the only user flagged for
+  unusual error rate (user_019) — worth a proactive check-in.
+- **Orbit People (acct_006) grew 178%** in three days; Cedar Finance
+  (acct_005) is the largest account by volume and cost (~$0.49 of $1.85 total).
+
+## Submission notes
+
+- **Time spent:** ~6 hours.
+- **Prioritized:** correctness of the raw→rejected→staged accounting, explicit
+  rejection reasons, dbt tests on every model, deterministic reruns.
+- **With more time:** incremental loading (currently full-refresh per file),
+  CI, seat-limit utilization vs `seat_limit`, a cost anomaly check, richer
+  session ordering in the funnel (strict stage sequence by timestamp).
+- **AI tools:** built with Claude Code. Verified by profiling the raw data
+  independently before writing any transform, reconciling every pipeline count
+  against that profile (725 = 690 + 35), the pytest suite over a hand-built
+  fixture covering each issue class, and 46 dbt tests.
