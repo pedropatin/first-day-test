@@ -8,5 +8,5 @@ select
     account_id,
     account_name,
     active_users
-from daily_account_metrics
+from gold.daily_account_metrics
 order by event_date, account_id;

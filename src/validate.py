@@ -30,16 +30,16 @@ class Check:
 CHECKS: list[Check] = [
     Check(
         "event_id unique in stg_events",
-        "select count(*) from (select event_id from stg_events group by 1 having count(*) > 1)",
+        "select count(*) from (select event_id from silver.stg_events group by 1 having count(*) > 1)",
     ),
     Check(
         "event_ts parsed and non-null in stg_events",
-        "select count(*) from stg_events where event_ts is null",
+        "select count(*) from silver.stg_events where event_ts is null",
     ),
     Check(
         "required ids present in stg_events",
         """
-        select count(*) from stg_events
+        select count(*) from silver.stg_events
         where account_id is null or user_id is null
            or (session_id is null and event_name not in ('user_invited', 'user_signed_up'))
         """,
@@ -47,7 +47,7 @@ CHECKS: list[Check] = [
     Check(
         "event_name within expected values",
         """
-        select count(*) from stg_events
+        select count(*) from silver.stg_events
         where event_name not in (
             'user_invited','user_signed_up','session_started','prompt_submitted',
             'ai_response_generated','response_accepted','response_rejected',
@@ -57,7 +57,7 @@ CHECKS: list[Check] = [
     Check(
         "no negative tokens/latency/cost in stg_events",
         """
-        select count(*) from stg_events
+        select count(*) from silver.stg_events
         where least(coalesce(prompt_tokens,0), coalesce(completion_tokens,0),
                     coalesce(latency_ms,0), coalesce(cost_usd,0)) < 0
         """,
@@ -65,31 +65,31 @@ CHECKS: list[Check] = [
     Check(
         "all stg_events accounts exist in dim_accounts",
         """
-        select count(*) from stg_events e
-        left join dim_accounts a using (account_id) where a.account_id is null
+        select count(*) from silver.stg_events e
+        left join gold.dim_accounts a using (account_id) where a.account_id is null
         """,
     ),
     Check(
         "all stg_events users exist in dim_users",
         """
-        select count(*) from stg_events e
-        left join dim_users u using (user_id) where u.user_id is null
+        select count(*) from silver.stg_events e
+        left join gold.dim_users u using (user_id) where u.user_id is null
         """,
     ),
     Check(
         "row counts reconcile (raw + malformed = staged + rejected)",
         """
         select abs(
-            (select count(*) from raw_events)
-            + (select count(*) from raw_ingest_rejections)
-            - (select count(*) from stg_events)
-            - (select count(*) from rejected_events))
+            (select count(*) from bronze.raw_events)
+            + (select count(*) from bronze.raw_ingest_rejections)
+            - (select count(*) from silver.stg_events)
+            - (select count(*) from silver.rejected_events))
         """,
     ),
     Check(
         "every rejected row has a reason and lineage",
         """
-        select count(*) from rejected_events
+        select count(*) from silver.rejected_events
         where rejection_reason is null or source_file is null or line_number is null
         """,
     ),
@@ -105,9 +105,11 @@ def run_report(db_path: Path, report_path: Path) -> bool:
     lines.append("| table | rows |")
     lines.append("|---|---:|")
     for table in (
-        "raw_events", "raw_ingest_rejections", "raw_accounts", "raw_users",
-        "stg_events", "rejected_events", "dim_accounts", "dim_users",
-        "fact_ai_interactions", "fact_sessions", "daily_account_metrics",
+        "bronze.raw_events", "bronze.raw_ingest_rejections",
+        "bronze.raw_accounts", "bronze.raw_users",
+        "silver.stg_events", "silver.rejected_events",
+        "gold.dim_accounts", "gold.dim_users", "gold.fact_ai_interactions",
+        "gold.fact_sessions", "gold.daily_account_metrics",
     ):
         n = con.execute(f"select count(*) from {table}").fetchone()[0]
         lines.append(f"| {table} | {n} |")
@@ -124,7 +126,7 @@ def run_report(db_path: Path, report_path: Path) -> bool:
                case when rejection_reason like 'malformed_json%' then 'malformed_json'
                     else rejection_reason end as reason,
                count(*)
-        from rejected_events group by 1, 2 order by 1, 3 desc
+        from silver.rejected_events group by 1, 2 order by 1, 3 desc
         """
     ).fetchall():
         lines.append(f"| {stage} | {reason} | {n} |")

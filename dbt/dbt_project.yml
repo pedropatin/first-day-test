@@ -10,9 +10,13 @@ analysis-paths: ["analyses"]
 target-path: target
 clean-targets: [target, dbt_packages]
 
+# Medallion layout: bronze (raw, written by src/ingest.py) -> silver
+# (cleaned staging) -> gold (analyst-facing marts).
 models:
   firstday:
     staging:
       +materialized: table
+      +schema: silver
     marts:
       +materialized: table
+      +schema: gold

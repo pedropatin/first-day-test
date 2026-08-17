@@ -1,6 +1,6 @@
 # First Day — Data Engineering Take-Home
 
-Local pipeline: raw JSONL/CSV → DuckDB → dbt models + tests → analytics and a Streamlit dashboard.
+Local pipeline: raw JSONL/CSV → DuckDB → dbt models + tests → analytics and a Streamlit dashboard, organized as a medallion architecture (bronze/silver/gold schemas).
 
 ## Quickstart
 
@@ -16,17 +16,20 @@ make dashboard   # Streamlit dashboard at localhost:8501
 
 ## How it works
 
+Medallion layers as DuckDB schemas; table names follow the assignment.
+
 ```
 data/raw/*.jsonl,*.csv
    │  src/ingest.py          parse only; keep every parseable line verbatim
    ▼
-raw_events / raw_ingest_rejections / raw_accounts / raw_users   (DuckDB)
+BRONZE  raw_events / raw_ingest_rejections / raw_accounts / raw_users
    │  dbt (dbt/models/)      type, flatten JSON, classify, dedup
    ▼
-stg_events + rejected_events
+SILVER  stg_events + rejected_events
    │
    ▼
-dim_accounts, dim_users, fact_ai_interactions, fact_sessions, daily_account_metrics
+GOLD    dim_accounts, dim_users, fact_ai_interactions, fact_sessions,
+        daily_account_metrics
 ```
 
 Design rule: **ingestion never drops or edits data**. Lines that fail JSON
@@ -46,7 +49,7 @@ src/ingest.py                 load raw files into DuckDB (idempotent per file)
 src/validate.py               validation report -> data/processed/validation_report.md
 src/run_analytics.py          runs sql/analytics/*.sql
 sql/create_tables.sql         raw-layer DDL
-sql/analytics/q1..q8.sql      one file per business question
+sql/analytics/q1..q9.sql      one file per business question (q9 is extra)
 dbt/models/staging/           int_events_classified, stg_events, rejected_events
 dbt/models/marts/             dims, facts, daily_account_metrics
 dbt/models/schema.yml         38 schema tests (unique, not_null, relationships, non_negative)
@@ -95,15 +98,17 @@ On this sample: 725 input lines → 690 clean events + 35 rejected
 | `stg_events` | one row per unique valid event |
 | `rejected_events` | one row per rejected line/event, with stage + reason + file/line |
 | `dim_accounts` / `dim_users` | one row per account / user (emails masked to domain) |
-| `fact_ai_interactions` | one row per `ai_response_generated` event |
+| `fact_ai_interactions` | one row per `ai_response_generated` event, with known + estimated cost |
 | `fact_sessions` | one row per session, with funnel flags and totals |
 | `daily_account_metrics` | one row per (event_date, account_id) |
 
 ## Metric definitions worth stating
 
 - **Active user** = distinct user with ≥1 valid event that day.
-- **AI cost** = sum of *known* `cost_usd`; missing costs are not imputed, and
-  `uncosted_interactions` counts them so the gap is visible (9 of 138 calls).
+- **AI cost** comes in two columns: `ai_cost_usd` sums only *reported*
+  `cost_usd`; `ai_cost_usd_estimated` imputes the 9 (of 138) missing costs as
+  tokens × the model's observed cost-per-token, with `is_cost_estimated`
+  marking imputed rows. Known total $1.85, estimated total $1.98.
 - **Funnel** = share of started sessions where each stage *ever* happened,
   cumulatively (a stage only counts if all previous stages happened too).
 - **Rejection rate (Q6)** = rejected / (accepted + rejected) explicit
@@ -115,8 +120,10 @@ On this sample: 725 input lines → 690 clean events + 35 rejected
 
 - **Funnel converts 55.7%** of started sessions into completed workflows; the
   biggest single drop is response acceptance (87.3% → 67.7%).
-- **`gpt-5.5-mini` is ~2.5× faster** than `gpt-5.5` (median 1.2s vs 3.0s) and
-  is already the top model in the onboarding workflow.
+- **`gpt-5.5-mini` matches `gpt-5.5` on acceptance (75.6% vs 75.9%) at ~1/4
+  the cost per call and 2.5× the speed** (median 1.2s vs 3.0s) — the routing
+  decision the data argues for. `gpt-4.1` has the highest acceptance (84%)
+  but on only 25 flagged calls.
 - **Atlas Legal (acct_004) is a churn-risk signal**: highest rejection rate
   (38.5%), usage down 50% over the sample, and the only user flagged for
   unusual error rate (user_019) — worth a proactive check-in.
@@ -129,8 +136,9 @@ On this sample: 725 input lines → 690 clean events + 35 rejected
 - **Prioritized:** correctness of the raw→rejected→staged accounting, explicit
   rejection reasons, dbt tests on every model, deterministic reruns.
 - **With more time:** incremental loading (currently full-refresh per file),
-  CI, seat-limit utilization vs `seat_limit`, a cost anomaly check, richer
-  session ordering in the funnel (strict stage sequence by timestamp).
+  CI, seat-limit utilization vs `seat_limit`, unit economics (cost per
+  accepted response), a cost anomaly check, richer session ordering in the
+  funnel (strict stage sequence by timestamp).
 - **AI tools:** built with Claude Code. Verified by profiling the raw data
   independently before writing any transform, reconciling every pipeline count
   against that profile (725 = 690 + 35), the pytest suite over a hand-built

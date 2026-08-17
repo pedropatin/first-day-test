@@ -6,10 +6,23 @@
 --     on the day it happened, not the day it was received.
 --   * ai_cost_usd sums only known costs; interactions with missing cost_usd
 --     contribute 0 (uncosted_interactions counts them for transparency).
+--     ai_cost_usd_estimated fills those gaps with the per-model imputation
+--     from fact_ai_interactions.
 
 with events as (
 
     select * from {{ ref('stg_events') }}
+
+),
+
+estimated_cost as (
+
+    select
+        event_date,
+        account_id,
+        sum(cost_usd_estimated) as ai_cost_usd_estimated
+    from {{ ref('fact_ai_interactions') }}
+    group by event_date, account_id
 
 ),
 
@@ -49,6 +62,9 @@ select
     daily.account_id,
     accounts.account_name,
     accounts.plan,
-    daily.* exclude (event_date, account_id)
+    daily.* exclude (event_date, account_id),
+    round(coalesce(estimated_cost.ai_cost_usd_estimated, 0), 6)
+        as ai_cost_usd_estimated
 from daily
+left join estimated_cost using (event_date, account_id)
 left join {{ ref('dim_accounts') }} as accounts using (account_id)

@@ -6,6 +6,6 @@ select
     workflow,
     model,
     count(*) as ai_interactions
-from fact_ai_interactions
+from gold.fact_ai_interactions
 group by workflow, model
 order by ai_interactions desc;

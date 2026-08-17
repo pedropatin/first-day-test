@@ -12,8 +12,8 @@ select
         100.0 * count(*) filter (event_name = 'response_rejected')
         / nullif(count(*), 0), 1
     ) as rejection_rate_pct
-from stg_events as events
-left join dim_accounts as accounts using (account_id)
+from silver.stg_events as events
+left join gold.dim_accounts as accounts using (account_id)
 where event_name in ('response_rejected', 'response_accepted')
 group by events.account_id, accounts.account_name
 order by rejected_responses desc;

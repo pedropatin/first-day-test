@@ -6,7 +6,7 @@
 
 with bounds as (
     select min(event_date) as first_day, max(event_date) as last_day
-    from daily_account_metrics
+    from gold.daily_account_metrics
 ),
 
 pivoted as (
@@ -16,7 +16,7 @@ pivoted as (
         sum(events) filter (event_date = bounds.first_day) as first_day_events,
         sum(events) filter (event_date = bounds.last_day)  as last_day_events,
         sum(events)                                        as total_events
-    from daily_account_metrics as metrics, bounds
+    from gold.daily_account_metrics as metrics, bounds
     group by metrics.account_id, metrics.account_name
 )
 

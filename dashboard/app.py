@@ -26,28 +26,28 @@ st.title("AI usage — 3-day sample")
 # ---- KPIs -------------------------------------------------------------------
 k = q("""
     select
-        (select count(distinct user_id) from stg_events)            as users,
-        (select count(*) from fact_sessions)                        as sessions,
-        (select count(*) from fact_ai_interactions)                 as interactions,
-        (select round(sum(ai_cost_usd), 2) from daily_account_metrics) as cost,
+        (select count(distinct user_id) from silver.stg_events)            as users,
+        (select count(*) from gold.fact_sessions)                        as sessions,
+        (select count(*) from gold.fact_ai_interactions)                 as interactions,
+        (select round(sum(ai_cost_usd_estimated), 2) from gold.daily_account_metrics) as cost,
         (select round(100.0 * count(*) filter (has_workflow_completed)
-                / count(*), 1) from fact_sessions where has_session_started) as completion
+                / count(*), 1) from gold.fact_sessions where has_session_started) as completion
 """).iloc[0]
 
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Active users", int(k.users))
 c2.metric("Sessions", int(k.sessions))
 c3.metric("AI interactions", int(k.interactions))
-c4.metric("Known AI cost", f"${k.cost}")
+c4.metric("Est. AI cost", f"${k.cost}")
 c5.metric("Workflow completion", f"{k.completion}%")
 
-tab_funnel, tab_cost, tab_latency, tab_quality = st.tabs(
-    ["Funnel", "Cost & usage", "Latency", "Data quality"]
+tab_funnel, tab_cost, tab_models, tab_quality = st.tabs(
+    ["Funnel", "Cost & usage", "Models", "Data quality"]
 )
 
 with tab_funnel:
     funnel = q("""
-        with base as (select * from fact_sessions where has_session_started)
+        with base as (select * from gold.fact_sessions where has_session_started)
         select 'Session started' as stage, count(*) as sessions, 1 as ord from base
         union all select 'Prompt submitted', count(*), 2 from base where has_prompt_submitted
         union all select 'AI response', count(*), 3 from base
@@ -66,17 +66,18 @@ with tab_funnel:
 with tab_cost:
     left, right = st.columns(2)
     daily_cost = q("""
-        select event_date, account_name, ai_cost_usd
-        from daily_account_metrics order by event_date
+        select event_date, account_name, ai_cost_usd_estimated
+        from gold.daily_account_metrics order by event_date
     """)
     left.plotly_chart(
-        px.bar(daily_cost, x="event_date", y="ai_cost_usd", color="account_name",
-               title="Daily known AI cost by account"),
+        px.bar(daily_cost, x="event_date", y="ai_cost_usd_estimated",
+               color="account_name",
+               title="Daily estimated AI cost by account"),
         use_container_width=True,
     )
     growth = q("""
         select event_date, account_name, events
-        from daily_account_metrics order by event_date
+        from gold.daily_account_metrics order by event_date
     """)
     right.plotly_chart(
         px.line(growth, x="event_date", y="events", color="account_name",
@@ -84,23 +85,36 @@ with tab_cost:
         use_container_width=True,
     )
 
-with tab_latency:
+with tab_models:
+    left, right = st.columns(2)
     latency = q("""
         select model, round(median(latency_ms)) as median_ms,
                round(quantile_cont(latency_ms, 0.95)) as p95_ms
-        from fact_ai_interactions group by model order by median_ms
+        from gold.fact_ai_interactions group by model order by median_ms
     """)
-    st.plotly_chart(
+    left.plotly_chart(
         px.bar(latency.melt(id_vars="model", var_name="metric", value_name="ms"),
                x="model", y="ms", color="metric", barmode="group",
                title="Latency by model (median vs p95)"),
         use_container_width=True,
     )
+    acceptance = q("""
+        select model,
+               round(100.0 * count(*) filter (accepted)
+                     / nullif(count(accepted), 0), 1) as acceptance_rate_pct
+        from gold.fact_ai_interactions group by model order by 2 desc
+    """)
+    right.plotly_chart(
+        px.bar(acceptance, x="model", y="acceptance_rate_pct",
+               title="Acceptance rate by model (%)"),
+        use_container_width=True,
+    )
     st.dataframe(
         q("""
             select workflow, model, count(*) as interactions,
-                   round(avg(total_tokens)) as avg_tokens
-            from fact_ai_interactions group by all order by interactions desc
+                   round(avg(total_tokens)) as avg_tokens,
+                   round(sum(cost_usd_estimated), 4) as est_cost_usd
+            from gold.fact_ai_interactions group by all order by interactions desc
         """),
         use_container_width=True,
     )
@@ -111,7 +125,7 @@ with tab_quality:
         select case when rejection_reason like 'malformed_json%' then 'malformed_json'
                     else rejection_reason end as reason,
                count(*) as rows
-        from rejected_events group by reason order by rows desc
+        from silver.rejected_events group by reason order by rows desc
     """)
     left.plotly_chart(
         px.bar(reasons, x="rows", y="reason", orientation="h",
@@ -123,7 +137,7 @@ with tab_quality:
         q("""
             select rejection_stage, rejection_reason, event_id,
                    source_file, line_number
-            from rejected_events order by source_file, line_number
+            from silver.rejected_events order by source_file, line_number
         """),
         use_container_width=True,
     )

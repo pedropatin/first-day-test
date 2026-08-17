@@ -48,6 +48,12 @@ models:
       - name: cost_usd
         tests: [non_negative]
 
+  - name: int_events_classified
+    description: >
+      Internal silver model: every raw event typed and flattened, with at
+      most one rejection_reason per row. stg_events and rejected_events
+      both derive from it.
+
   - name: rejected_events
     description: Explainable audit trail of every rejected line or event.
     columns:
@@ -87,6 +93,8 @@ models:
       - name: latency_ms
         tests: [not_null, non_negative]
       - name: cost_usd
+        tests: [non_negative]
+      - name: cost_usd_estimated
         tests: [non_negative]
 
   - name: fact_sessions
