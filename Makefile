@@ -2,7 +2,7 @@
 PYTHON ?= python3
 BIN := .venv/bin
 
-.PHONY: setup run test analytics dashboard clean
+.PHONY: setup run test analytics dashboard docs clean
 
 setup:
 	$(PYTHON) -m venv .venv
@@ -21,6 +21,9 @@ test:
 
 dashboard:
 	$(BIN)/streamlit run dashboard/app.py
+
+docs:           ## lineage graph + model/column docs at localhost:8080
+	cd dbt && DBT_PROFILES_DIR=. ../$(BIN)/dbt docs generate && ../$(BIN)/dbt docs serve
 
 clean:
 	rm -rf data/processed/* dbt/target dbt/logs

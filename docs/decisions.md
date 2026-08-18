@@ -20,16 +20,19 @@ changing a rule never touches the loader, and each rejected row carries an
 explicit reason. Cost: the raw layer stores some garbage by design — that
 is what a raw layer is for.
 
-## 3. Layer schemas named after the dbt convention (not medallion)
+## 3. One schema; table prefixes carry the layer
 
-Physical DuckDB schemas make the layer contract visible to anyone opening
-the database. A first version used medallion names (`bronze`/`silver`/
-`gold`); we renamed them to `raw` / `staging` / `marts` — the dbt
-convention — because then the schema name, the table prefixes inside it,
-and the assignment's own vocabulary are all the same words
-(`raw.raw_events`, `staging.stg_events`, `marts.dim_accounts`). Medallion
-added a translation layer and zero capability. Staging models are views
-(they hold rules, not state); marts are tables.
+This evolved twice. A first version used medallion schemas
+(`bronze`/`silver`/`gold`) — dropped because it duplicated in the schema
+name what the dbt-convention table prefixes (`raw_`, `stg_`, `dim_`/`fact_`)
+already say, and forced every query to carry a translation
+(`silver.stg_events`). A second version kept dbt-named schemas
+(`raw`/`staging`/`marts`) — still redundant (`staging.stg_events`). Final
+form: one schema, prefixes carry the layer, every reference is short
+(`from stg_events`). Physical schema separation buys access control, which
+matters in a warehouse and not in a local DuckDB file; docs/design.md covers
+the production version. Staging and report models are views (rules, not
+state); core marts are tables.
 
 ## 4. Deduplication in staging, not ingestion; first-received wins
 
@@ -66,13 +69,12 @@ marking imputed rows. Finance can choose either total and always sees how
 much of it is estimated ($1.85 known vs $1.98 estimated). Assumption
 accepted: linear per-token pricing within this sample.
 
-## 8. `sql/` and `dbt/` split — dbt owns transformations, sql/ owns the edges
+## 8. Ingestion is the only non-dbt SQL
 
-`sql/create_tables.sql` is the raw-layer DDL executed by the Python loader
-(dbt does not load external data); `sql/analytics/` holds read-only business
-questions against the marts (they materialize nothing, so they are not
-models).
-Everything that turns one table into another lives in `dbt/models/`.
+`sql/create_tables.sql` is the raw-layer DDL executed by the Python loader —
+it cannot be a dbt model because dbt does not load external data. Everything
+else is dbt. (An earlier version also kept the analytics questions in
+`sql/analytics/`; see decision 10 for why they moved into dbt.)
 
 ## 9. Event-name contract as a dbt seed
 
@@ -86,3 +88,32 @@ change is reviewed like code. Seeds fit here precisely because this list is
 small, static, analytics-owned reference data — unlike `accounts.csv` /
 `users.csv`, which are operational source data and therefore enter through
 ingestion (the raw layer, with file/timestamp lineage), never as seeds.
+
+## 10. Analytics questions as dbt report views
+
+The 9 analytics questions started as loose SQL files in `sql/analytics/`.
+That made them second-class citizens: raw table names instead of `ref()`
+(every schema change meant editing all 9 files), invisible in the lineage
+graph, untestable, and the dashboard re-implemented the same logic a third
+time. They are now views in `dbt/models/marts/reports/` (`rpt_*`) — a
+subfolder of marts, keeping the official staging/marts structure intact
+rather than inventing a top-level layer. Each question uses `ref()`, appears
+in `dbt docs`, is described in schema.yml, and the dashboard reads the same
+views, so every metric has exactly one definition. `dbt/analyses/` was
+considered and rejected: analyses compile but don't materialize, which would
+have kept the dashboard duplication alive.
+
+## 11. Quality checks live only in dbt tests
+
+`validate.py` originally re-implemented seven checks that dbt tests already
+enforced — two sources of truth that could drift. It is now report-only
+(row counts, rejection breakdown) plus the single cross-layer invariant
+(`raw + malformed = staged + rejected`) as its exit-code gate. Every other
+check exists exactly once, as a dbt test that fails the build.
+
+## 12. Every table and column described in schema.yml
+
+All models, sources, and the seed carry descriptions, browsable via
+`make docs` (dbt lineage graph + catalog). The grain of each model is also
+stated as a comment at the top of its SQL file, where a code reader will
+see it without opening the docs site.

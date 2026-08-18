@@ -16,7 +16,7 @@ def test_rejections_keep_lineage(raw_dir, db_path):
     con = duckdb.connect(str(db_path), read_only=True)
     rows = con.execute(
         "select source_file, line_number, raw_line, rejection_reason "
-        "from raw.raw_ingest_rejections order by line_number"
+        "from raw_ingest_rejections order by line_number"
     ).fetchall()
     assert len(rows) == 2
     assert rows[0][2] == "{not valid json"
@@ -29,16 +29,16 @@ def test_reingest_is_idempotent(raw_dir, db_path):
     run_ingest(raw_dir, db_path)
     run_ingest(raw_dir, db_path)
     con = duckdb.connect(str(db_path), read_only=True)
-    assert con.execute("select count(*) from raw.raw_events").fetchone()[0] == 18
-    assert con.execute("select count(*) from raw.raw_ingest_rejections").fetchone()[0] == 2
-    assert con.execute("select count(*) from raw.raw_accounts").fetchone()[0] == 2
+    assert con.execute("select count(*) from raw_events").fetchone()[0] == 18
+    assert con.execute("select count(*) from raw_ingest_rejections").fetchone()[0] == 2
+    assert con.execute("select count(*) from raw_accounts").fetchone()[0] == 2
 
 
 def test_raw_preserves_original_payload(raw_dir, db_path):
     run_ingest(raw_dir, db_path)
     con = duckdb.connect(str(db_path), read_only=True)
     ts, payload = con.execute(
-        "select event_ts, raw_payload from raw.raw_events where event_id = 'e16'"
+        "select event_ts, raw_payload from raw_events where event_id = 'e16'"
     ).fetchone()
     assert ts == "2026-08-01 99:99:99"  # kept verbatim; staging rejects it
     assert "99:99:99" in payload

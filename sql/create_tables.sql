@@ -1,11 +1,9 @@
-CREATE SCHEMA IF NOT EXISTS raw;
-
 -- Raw layer DDL (immutable). Executed by src/ingest.py on every run (idempotent).
 -- Raw tables preserve source values as-is (timestamps kept as VARCHAR);
 -- typing/casting happens in the dbt staging layer so that bad values can be
 -- rejected with a reason instead of failing the load.
 
-CREATE TABLE IF NOT EXISTS raw.raw_events (
+CREATE TABLE IF NOT EXISTS raw_events (
     event_id      VARCHAR,          -- may be NULL/duplicated in raw; cleaned in staging
     event_ts      VARCHAR,          -- raw string, cast + validated in staging
     received_ts   VARCHAR,
@@ -23,7 +21,7 @@ CREATE TABLE IF NOT EXISTS raw.raw_events (
 -- Lines that could not be parsed as a JSON event object at ingestion time.
 -- Staging-level rejections (bad values, unknown refs, duplicates) are unioned
 -- with these in the dbt model `rejected_events`.
-CREATE TABLE IF NOT EXISTS raw.raw_ingest_rejections (
+CREATE TABLE IF NOT EXISTS raw_ingest_rejections (
     source_file      VARCHAR NOT NULL,
     line_number      INTEGER NOT NULL,
     raw_line         VARCHAR,
@@ -31,7 +29,7 @@ CREATE TABLE IF NOT EXISTS raw.raw_ingest_rejections (
     ingested_at      TIMESTAMP NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS raw.raw_accounts (
+CREATE TABLE IF NOT EXISTS raw_accounts (
     account_id   VARCHAR,
     account_name VARCHAR,
     plan         VARCHAR,
@@ -42,7 +40,7 @@ CREATE TABLE IF NOT EXISTS raw.raw_accounts (
     ingested_at  TIMESTAMP NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS raw.raw_users (
+CREATE TABLE IF NOT EXISTS raw_users (
     user_id     VARCHAR,
     account_id  VARCHAR,
     email       VARCHAR,

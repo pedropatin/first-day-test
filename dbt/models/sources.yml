@@ -3,16 +3,52 @@ version: 2
 sources:
   - name: raw
     description: Raw layer, loaded by src/ingest.py (parse-only, no casting or dedup).
-    schema: raw
+    schema: main
     tables:
       - name: raw_events
         description: >
           Every JSONL line that parsed as a JSON object, verbatim. Timestamps
           are kept as VARCHAR so invalid values can be rejected with a reason
           in staging instead of failing the load. May contain duplicates.
+        columns:
+          - name: event_id
+            description: Event identifier as received; may be missing or duplicated here.
+          - name: event_ts
+            description: When the user acted — raw string, cast in staging.
+          - name: received_ts
+            description: When the event reached the pipeline — raw string.
+          - name: account_id
+            description: Account reference as received.
+          - name: user_id
+            description: User reference as received.
+          - name: session_id
+            description: Session reference as received.
+          - name: event_name
+            description: Event type as received; validated against the seed in staging.
+          - name: properties
+            description: Event-specific JSON payload, flattened in staging.
+          - name: raw_payload
+            description: The complete original JSON line, for lineage and debugging.
+          - name: source_file
+            description: File the line came from.
+          - name: line_number
+            description: 1-based line number within source_file.
+          - name: ingested_at
+            description: UTC load timestamp.
       - name: raw_ingest_rejections
         description: Lines that failed JSON parsing, with file/line lineage.
+        columns:
+          - name: source_file
+            description: File the rejected line came from.
+          - name: line_number
+            description: 1-based line number within source_file.
+          - name: raw_line
+            description: The rejected line, verbatim.
+          - name: rejection_reason
+            description: Parser error (malformed_json / not_a_json_object).
+          - name: ingested_at
+            description: UTC load timestamp.
       - name: raw_accounts
-        description: accounts.csv loaded as-is.
+        description: accounts.csv loaded as-is, plus load lineage.
       - name: raw_users
-        description: users.csv loaded as-is.
+        description: users.csv loaded as-is, plus load lineage.

@@ -11,19 +11,14 @@ analysis-paths: ["analyses"]
 target-path: target
 clean-targets: [target, dbt_packages]
 
-# Layered schemas named after the dbt convention, matching the table
-# prefixes: raw (written by src/ingest.py) -> staging (cleaned) -> marts
-# (analyst-facing). Staging is views — it holds no state of its own, only
-# rules over raw; marts are tables for stable, fast reads.
+# One schema; table prefixes carry the layer (raw_ -> stg_ -> dim_/fact_).
+# Staging and reports are views — they hold rules, not state; the core
+# marts are tables for stable, fast reads.
 models:
   firstday:
     staging:
       +materialized: view
-      +schema: staging
     marts:
       +materialized: table
-      +schema: marts
-
-seeds:
-  firstday:
-    +schema: staging
+      reports:
+        +materialized: view

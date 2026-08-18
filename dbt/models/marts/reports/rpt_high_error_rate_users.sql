@@ -1,11 +1,11 @@
 -- Q7. Users with unusually high error rates.
--- Definition: error rate = error_raised events / total events per user.
--- "Unusually high" = above (overall mean rate + 2 standard deviations of
--- per-user rates), with a minimum of 10 events so tiny denominators don't
--- dominate. Both the threshold and every user's rate are shown, so the
+-- Error rate = error_raised / total events per user. "Unusually high" =
+-- above mean + 2 standard deviations of per-user rates, minimum 10 events
+-- so tiny denominators don't dominate. The threshold is included so the
 -- cutoff is auditable.
 
 with per_user as (
+
     select
         user_id,
         account_id,
@@ -13,14 +13,17 @@ with per_user as (
         count(*) filter (event_name = 'error_raised') as errors,
         count(*) filter (event_name = 'error_raised') * 1.0 / count(*)
             as error_rate
-    from staging.stg_events
+    from {{ ref('stg_events') }}
     group by user_id, account_id
+
 ),
 
 threshold as (
+
     select avg(error_rate) + 2 * stddev_pop(error_rate) as cutoff
     from per_user
     where events >= 10
+
 )
 
 select
@@ -33,4 +36,4 @@ select
 from per_user, threshold
 where per_user.events >= 10
   and per_user.error_rate > threshold.cutoff
-order by per_user.error_rate desc;
+order by per_user.error_rate desc

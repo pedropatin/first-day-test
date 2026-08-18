@@ -1,6 +1,9 @@
 # First Day — Data Engineering Take-Home
 
-Local pipeline: raw JSONL/CSV → DuckDB → dbt models + tests → analytics and a Streamlit dashboard. Three DuckDB schemas, named after the dbt convention and matching the table prefixes: `raw` → `staging` → `marts`.
+Local pipeline: raw JSONL/CSV → DuckDB → dbt → a Streamlit dashboard.
+One rule explains the whole repo: **`src/ingest.py` loads the raw files; dbt
+does everything else.** Layers follow the dbt convention, carried by table
+prefixes: `raw_*` → `stg_*` → `dim_*`/`fact_*` → `rpt_*`.
 
 ## Quickstart
 
@@ -8,29 +11,34 @@ Requires Python 3.10–3.13 and `make`.
 
 ```bash
 make setup       # venv + pinned dependencies
-make run         # ingest -> dbt build (models + 46 tests) -> validation report
-make analytics   # answers to the 8 analytics questions
+make run         # ingest -> dbt build (models + 59 tests) -> validation report
+make analytics   # print the answers to the 9 analytics questions
 make test        # pytest (ingestion + transform on a fixture dataset)
 make dashboard   # Streamlit dashboard at localhost:8501
+make docs        # dbt lineage graph + table/column docs at localhost:8080
 ```
 
 ## How it works
 
-Each layer is a DuckDB schema whose name matches its table prefixes:
-
 ```
 data/raw/*.jsonl,*.csv
-   │  src/ingest.py          parse only; keep every parseable line verbatim
+   │  src/ingest.py — parse only; keep every parseable line verbatim
    ▼
-raw       raw_events / raw_ingest_rejections / raw_accounts / raw_users
-   │  dbt (dbt/models/)      type, flatten JSON, classify, dedup
+raw_events / raw_ingest_rejections / raw_accounts / raw_users
+   │  dbt staging — type, flatten JSON, classify, dedup     (views)
    ▼
-staging   stg_events + rejected_events            (views — rules, not state)
-   │
+stg_events + rejected_events
+   │  dbt marts — analyst-facing                            (tables)
    ▼
-marts     dim_accounts, dim_users, fact_ai_interactions, fact_sessions,
-          daily_account_metrics                   (tables — what analysts read)
+dim_accounts, dim_users, fact_ai_interactions, fact_sessions,
+daily_account_metrics
+   │  dbt marts/reports — the analytics questions           (views)
+   ▼
+rpt_daily_active_users ... rpt_acceptance_by_model  (one per question)
 ```
+
+Everything after ingestion is one dbt DAG — run `make docs` to browse it as
+an interactive lineage graph with every table and column described.
 
 Design rule: **ingestion never drops or edits data**. Lines that fail JSON
 parsing go to `raw_ingest_rejections`; everything else lands in `raw_events`
@@ -46,25 +54,20 @@ raw_events + raw_ingest_rejections == stg_events + rejected_events
 
 ```
 src/ingest.py                 load raw files into DuckDB (idempotent per file)
-src/validate.py               validation report -> data/processed/validation_report.md
-src/run_analytics.py          runs sql/analytics/*.sql
-sql/create_tables.sql         raw-layer DDL
-sql/analytics/q1..q9.sql      one file per business question (q9 is extra)
+src/validate.py               human-readable report + reconciliation gate
+src/run_analytics.py          prints the rpt_* views
+sql/create_tables.sql         raw-layer DDL, executed by ingest.py
 dbt/models/staging/           int_events_classified, stg_events, rejected_events
 dbt/models/marts/             dims, facts, daily_account_metrics
+dbt/models/marts/reports/     rpt_* — one view per analytics question
+dbt/models/schema.yml         every table and column described + 59 tests
 dbt/seeds/                    expected_event_names.csv — the event-name contract
-dbt/models/schema.yml         schema tests (unique, not_null, relationships, non_negative)
 tests/                        pytest: ingestion + full dbt build on a fixture dataset
-dashboard/app.py              Streamlit
+dashboard/app.py              Streamlit, reads marts and rpt_* views
 docs/design.md                production design note
 docs/decisions.md             technical decision records (why, and what each accepts)
 docs/ASSIGNMENT.md            original assignment
 ```
-
-Rule of thumb for the layout: **dbt owns every table-to-table
-transformation; `sql/` holds the edges** — the raw-layer DDL executed by the
-Python loader on the way in, and the read-only business questions on the
-way out.
 
 ### Mapping to the assignment's expected deliverables
 
@@ -75,7 +78,8 @@ exist in dbt form:
 |---|---|---|
 | `src/transform.py` | `dbt/models/` | transformations are versioned, tested SQL models instead of a script |
 | `sql/marts.sql` | `dbt/models/marts/*.sql` | same marts, one file per model with its grain documented |
-| `rejected_events` from ingestion | `raw.raw_ingest_rejections` + `staging.rejected_events` | parse failures captured at ingest; the staging model unions them with validation rejects so all rejections live in one queryable table |
+| analytics SQL queries | `dbt/models/marts/reports/rpt_*.sql` | each question is a view: uses ref(), tested, documented, in the lineage graph, and reused by the dashboard |
+| `rejected_events` from ingestion | `raw_ingest_rejections` + `rejected_events` | parse failures captured at ingest; the staging model unions them with validation rejects so all rejections live in one queryable table |
 | everything else | identical names and paths | — |
 
 ## Rejection rules
@@ -157,4 +161,4 @@ On this sample: 725 input lines → 690 clean events + 35 rejected
 - **AI tools:** built with Claude Code. Verified by profiling the raw data
   independently before writing any transform, reconciling every pipeline count
   against that profile (725 = 690 + 35), the pytest suite over a hand-built
-  fixture covering each issue class, and 46 dbt tests.
+  fixture covering each issue class, and 59 dbt tests.
