@@ -17,21 +17,24 @@ deliverables exist in dbt form (`src/transform.py` → `dbt/models/`,
 line verbatim (timestamps as strings, full payload kept). Every rule that
 can reject an event is SQL in one model (`int_events_classified`), so
 changing a rule never touches the loader, and each rejected row carries an
-explicit reason. Cost: bronze stores some garbage by design — that is what
-bronze is for.
+explicit reason. Cost: the raw layer stores some garbage by design — that
+is what a raw layer is for.
 
-## 3. Medallion schemas, assignment table names
+## 3. Layer schemas named after the dbt convention (not medallion)
 
-Physical DuckDB schemas `bronze` / `silver` / `gold` make the layer contract
-visible to anyone opening the database, while table names stay exactly what
-the assignment expects (`raw_events`, `stg_events`, `dim_accounts`, ...).
-Renaming tables to `bronze_events` etc. would force the reviewer to
-translate — organization gained nothing from breaking the vocabulary.
+Physical DuckDB schemas make the layer contract visible to anyone opening
+the database. A first version used medallion names (`bronze`/`silver`/
+`gold`); we renamed them to `raw` / `staging` / `marts` — the dbt
+convention — because then the schema name, the table prefixes inside it,
+and the assignment's own vocabulary are all the same words
+(`raw.raw_events`, `staging.stg_events`, `marts.dim_accounts`). Medallion
+added a translation layer and zero capability. Staging models are views
+(they hold rules, not state); marts are tables.
 
 ## 4. Deduplication in staging, not ingestion; first-received wins
 
-The assignment places dedup under ingestion; we do it in the silver layer so
-bronze remains a complete audit copy. Tie-break is deterministic: lowest
+The assignment places dedup under ingestion; we do it in staging so the
+raw layer remains a complete audit copy. Tie-break is deterministic: lowest
 `(received_ts, source_file, line_number)`. All duplicates in the sample are
 exact payload copies, so the rule changes no metric — it only guarantees
 reruns produce identical output. Dropped copies are kept in
@@ -65,9 +68,10 @@ accepted: linear per-token pricing within this sample.
 
 ## 8. `sql/` and `dbt/` split — dbt owns transformations, sql/ owns the edges
 
-`sql/create_tables.sql` is the bronze DDL executed by the Python loader
+`sql/create_tables.sql` is the raw-layer DDL executed by the Python loader
 (dbt does not load external data); `sql/analytics/` holds read-only business
-questions against gold (they materialize nothing, so they are not models).
+questions against the marts (they materialize nothing, so they are not
+models).
 Everything that turns one table into another lives in `dbt/models/`.
 
 ## 9. Event-name contract as a dbt seed
@@ -81,4 +85,4 @@ test, and validate.py queries the seeded table. One file to change, and the
 change is reviewed like code. Seeds fit here precisely because this list is
 small, static, analytics-owned reference data — unlike `accounts.csv` /
 `users.csv`, which are operational source data and therefore enter through
-ingestion (bronze, with file/timestamp lineage), never as seeds.
+ingestion (the raw layer, with file/timestamp lineage), never as seeds.

@@ -44,7 +44,7 @@ models:
 
   - name: int_events_classified
     description: >
-      Internal silver model: every raw event typed and flattened, with at
+      Internal staging model: every raw event typed and flattened, with at
       most one rejection_reason per row. stg_events and rejected_events
       both derive from it.
 

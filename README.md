@@ -1,6 +1,6 @@
 # First Day — Data Engineering Take-Home
 
-Local pipeline: raw JSONL/CSV → DuckDB → dbt models + tests → analytics and a Streamlit dashboard, organized as a medallion architecture (bronze/silver/gold schemas).
+Local pipeline: raw JSONL/CSV → DuckDB → dbt models + tests → analytics and a Streamlit dashboard. Three DuckDB schemas, named after the dbt convention and matching the table prefixes: `raw` → `staging` → `marts`.
 
 ## Quickstart
 
@@ -16,20 +16,20 @@ make dashboard   # Streamlit dashboard at localhost:8501
 
 ## How it works
 
-Medallion layers as DuckDB schemas; table names follow the assignment.
+Each layer is a DuckDB schema whose name matches its table prefixes:
 
 ```
 data/raw/*.jsonl,*.csv
    │  src/ingest.py          parse only; keep every parseable line verbatim
    ▼
-BRONZE  raw_events / raw_ingest_rejections / raw_accounts / raw_users
+raw       raw_events / raw_ingest_rejections / raw_accounts / raw_users
    │  dbt (dbt/models/)      type, flatten JSON, classify, dedup
    ▼
-SILVER  stg_events + rejected_events
+staging   stg_events + rejected_events            (views — rules, not state)
    │
    ▼
-GOLD    dim_accounts, dim_users, fact_ai_interactions, fact_sessions,
-        daily_account_metrics
+marts     dim_accounts, dim_users, fact_ai_interactions, fact_sessions,
+          daily_account_metrics                   (tables — what analysts read)
 ```
 
 Design rule: **ingestion never drops or edits data**. Lines that fail JSON
@@ -62,7 +62,7 @@ docs/ASSIGNMENT.md            original assignment
 ```
 
 Rule of thumb for the layout: **dbt owns every table-to-table
-transformation; `sql/` holds the edges** — the bronze DDL executed by the
+transformation; `sql/` holds the edges** — the raw-layer DDL executed by the
 Python loader on the way in, and the read-only business questions on the
 way out.
 
@@ -75,7 +75,7 @@ exist in dbt form:
 |---|---|---|
 | `src/transform.py` | `dbt/models/` | transformations are versioned, tested SQL models instead of a script |
 | `sql/marts.sql` | `dbt/models/marts/*.sql` | same marts, one file per model with its grain documented |
-| `rejected_events` from ingestion | `bronze.raw_ingest_rejections` + `silver.rejected_events` | parse failures captured at ingest; the silver model unions them with validation rejects so all rejections live in one queryable table |
+| `rejected_events` from ingestion | `raw.raw_ingest_rejections` + `staging.rejected_events` | parse failures captured at ingest; the staging model unions them with validation rejects so all rejections live in one queryable table |
 | everything else | identical names and paths | — |
 
 ## Rejection rules

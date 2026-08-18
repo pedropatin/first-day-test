@@ -12,6 +12,6 @@ select
     round(ai_cost_usd_estimated, 4) as ai_cost_usd_estimated,
     ai_interactions,
     uncosted_interactions
-from gold.daily_account_metrics
+from marts.daily_account_metrics
 where ai_interactions > 0
 order by event_date, ai_cost_usd desc;

@@ -1,11 +1,11 @@
 -- Q5. Session conversion funnel.
 -- Definition: share of sessions in which each stage EVER happened (stage
--- flags from gold.fact_sessions; no strict intra-session ordering required).
+-- flags from marts.fact_sessions; no strict intra-session ordering required).
 -- Sessions are counted once regardless of how many prompts/responses they
 -- contain. The base is all sessions with a session_started event.
 
 with base as (
-    select * from gold.fact_sessions
+    select * from marts.fact_sessions
     where has_session_started
 ),
 

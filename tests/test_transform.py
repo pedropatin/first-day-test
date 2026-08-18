@@ -37,14 +37,14 @@ def built_db(tmp_path_factory):
 
 
 def test_stg_events_keeps_only_valid_unique_events(built_db):
-    ids = [r[0] for r in built_db.execute("select event_id from silver.stg_events").fetchall()]
+    ids = [r[0] for r in built_db.execute("select event_id from staging.stg_events").fetchall()]
     assert sorted(ids) == ["e01", "e02", "e03", "e04", "e05", "e06", "e07", "e08", "e09"]
 
 
 def test_every_rejection_reason_is_assigned(built_db):
     reasons = dict(
         built_db.execute(
-            "select coalesce(event_id, raw_data), rejection_reason from silver.rejected_events"
+            "select coalesce(event_id, raw_data), rejection_reason from staging.rejected_events"
         ).fetchall()
     )
     assert reasons["e10"] == "unknown_event_name"
@@ -59,17 +59,17 @@ def test_every_rejection_reason_is_assigned(built_db):
 
 def test_dedup_keeps_earliest_line(built_db):
     line, = built_db.execute(
-        "select line_number from silver.stg_events where event_id = 'e06'"
+        "select line_number from staging.stg_events where event_id = 'e06'"
     ).fetchone()
     dropped, = built_db.execute(
-        "select line_number from silver.rejected_events where event_id = 'e06'"
+        "select line_number from staging.rejected_events where event_id = 'e06'"
     ).fetchone()
     assert line < dropped
 
 
 def test_late_event_is_kept_and_flagged(built_db):
     is_late, event_date = built_db.execute(
-        "select is_late, event_date from silver.stg_events where event_id = 'e08'"
+        "select is_late, event_date from staging.stg_events where event_id = 'e08'"
     ).fetchone()
     assert is_late
     assert str(event_date) == "2026-08-01"  # dated by event_ts, not received_ts
@@ -78,7 +78,7 @@ def test_late_event_is_kept_and_flagged(built_db):
 def test_missing_cost_stays_null_but_gets_estimated(built_db):
     cost, estimated, is_estimated = built_db.execute(
         """select cost_usd, cost_usd_estimated, is_cost_estimated
-           from gold.fact_ai_interactions where interaction_id = 'e07'"""
+           from marts.fact_ai_interactions where interaction_id = 'e07'"""
     ).fetchone()
     assert cost is None
     # e03 is the only costed m1 call: $0.01 / 120 tokens; e07 has 15 tokens
@@ -90,7 +90,7 @@ def test_session_funnel_flags(built_db):
     row = built_db.execute(
         """select has_session_started, has_prompt_submitted, has_ai_response,
                   has_response_accepted, has_workflow_completed, cost_usd
-           from gold.fact_sessions where session_id = 's1'"""
+           from marts.fact_sessions where session_id = 's1'"""
     ).fetchone()
     assert row == (True, True, True, True, True, 0.01)
 
@@ -99,7 +99,7 @@ def test_daily_account_metrics_grain_and_counts(built_db):
     rows = built_db.execute(
         """select account_id, active_users, ai_interactions, ai_cost_usd,
                   uncosted_interactions
-           from gold.daily_account_metrics order by account_id"""
+           from marts.daily_account_metrics order by account_id"""
     ).fetchall()
     # only acct_A has valid events; both users were active on 2026-08-01
     assert rows == [("acct_A", 2, 2, 0.01, 1)]
@@ -107,9 +107,9 @@ def test_daily_account_metrics_grain_and_counts(built_db):
 
 def test_row_count_reconciliation(built_db):
     raw, malformed, staged, rejected = built_db.execute(
-        """select (select count(*) from bronze.raw_events),
-                  (select count(*) from bronze.raw_ingest_rejections),
-                  (select count(*) from silver.stg_events),
-                  (select count(*) from silver.rejected_events)"""
+        """select (select count(*) from raw.raw_events),
+                  (select count(*) from raw.raw_ingest_rejections),
+                  (select count(*) from staging.stg_events),
+                  (select count(*) from staging.rejected_events)"""
     ).fetchone()
     assert raw + malformed == staged + rejected

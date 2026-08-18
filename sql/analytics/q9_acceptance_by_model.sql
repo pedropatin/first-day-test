@@ -13,6 +13,6 @@ select
         as acceptance_rate_pct,
     round(avg(cost_usd_estimated), 4)       as avg_cost_usd,
     round(median(latency_ms))               as median_latency_ms
-from gold.fact_ai_interactions
+from marts.fact_ai_interactions
 group by model
 order by acceptance_rate_pct desc;

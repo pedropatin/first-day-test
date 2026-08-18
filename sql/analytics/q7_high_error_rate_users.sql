@@ -13,7 +13,7 @@ with per_user as (
         count(*) filter (event_name = 'error_raised') as errors,
         count(*) filter (event_name = 'error_raised') * 1.0 / count(*)
             as error_rate
-    from silver.stg_events
+    from staging.stg_events
     group by user_id, account_id
 ),
 
