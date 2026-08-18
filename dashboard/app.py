@@ -95,8 +95,8 @@ c3.metric("AI interactions", int(k.interactions))
 c4.metric("Est. AI cost", f"${k.cost}")
 c5.metric("Workflow completion", f"{k.completion}%")
 
-tab_funnel, tab_cost, tab_models, tab_quality = st.tabs(
-    ["Funnel", "Cost & usage", "Models", "Data quality"]
+tab_funnel, tab_usage, tab_cost, tab_models, tab_quality = st.tabs(
+    ["Funnel", "Usage & growth", "Cost", "Models", "Quality & risk"]
 )
 
 with tab_funnel:
@@ -105,28 +105,45 @@ with tab_funnel:
     fig.update_traces(marker_color=BLUE, textfont=dict(family="Poppins", color="white"))
     st.plotly_chart(fig, use_container_width=True)
 
-with tab_cost:
+LABELS = {"event_date": "", "account_name": "account", "events": "events",
+          "ai_cost_usd_estimated": "USD (estimated)", "active_users": "active users",
+          "growth_pct": "growth %", "rejected_responses": "rejected responses"}
+
+with tab_usage:
     left, right = st.columns(2)
+    dau = q("""
+        select event_date, account_name, active_users
+        from rpt_daily_active_users
+    """)
+    dau_fig = px.line(dau, x="event_date", y="active_users", color="account_name",
+                      color_discrete_map=ACCOUNT_COLORS, markers=True,
+                      labels=LABELS, title="Q1 — Daily active users by account")
+    dau_fig.update_xaxes(dtick=86400000, tickformat="%b %d")
+    left.plotly_chart(dau_fig, use_container_width=True)
+
+    growth = q("""
+        select account_name, growth_pct from rpt_account_usage_growth
+        order by growth_pct
+    """)
+    growth_fig = px.bar(growth, x="growth_pct", y="account_name", orientation="h",
+                        color="account_name", color_discrete_map=ACCOUNT_COLORS,
+                        labels=LABELS,
+                        title="Q8 — Usage growth, day 3 vs day 1 (%)")
+    growth_fig.update_layout(showlegend=False)
+    right.plotly_chart(growth_fig, use_container_width=True)
+    st.caption("Three days shows direction, not a trend.")
+
+with tab_cost:
     daily_cost = q("""
         select event_date, account_name, ai_cost_usd_estimated
         from daily_account_metrics order by event_date
     """)
-    labels = {"event_date": "", "account_name": "account",
-              "ai_cost_usd_estimated": "USD (estimated)", "events": "events"}
     cost_fig = px.bar(daily_cost, x="event_date", y="ai_cost_usd_estimated",
                       color="account_name", color_discrete_map=ACCOUNT_COLORS,
-                      labels=labels, title="Daily estimated AI cost by account")
+                      labels=LABELS,
+                      title="Q4 — Daily estimated AI cost by account")
     cost_fig.update_xaxes(dtick=86400000, tickformat="%b %d")
-    left.plotly_chart(cost_fig, use_container_width=True)
-    growth = q("""
-        select event_date, account_name, events
-        from daily_account_metrics order by event_date
-    """)
-    growth_fig = px.line(growth, x="event_date", y="events", color="account_name",
-                         color_discrete_map=ACCOUNT_COLORS, markers=True,
-                         labels=labels, title="Daily events by account")
-    growth_fig.update_xaxes(dtick=86400000, tickformat="%b %d")
-    right.plotly_chart(growth_fig, use_container_width=True)
+    st.plotly_chart(cost_fig, use_container_width=True)
     with st.expander("Data table"):
         st.dataframe(q("select * from rpt_daily_cost_by_account"),
                      use_container_width=True)
@@ -141,27 +158,39 @@ with tab_models:
         px.bar(latency.melt(id_vars="model", var_name="metric", value_name="ms"),
                x="model", y="ms", color="metric", barmode="group",
                color_discrete_map={"median_ms": BLUE, "p95_ms": "#D98E00"},
-               title="Latency by model (median vs p95)"),
+               title="Q3 — Latency by model (median vs p95)"),
         use_container_width=True,
     )
     acceptance = q(
         "select model, acceptance_rate_pct from rpt_acceptance_by_model"
     )
     accept_fig = px.bar(acceptance, x="model", y="acceptance_rate_pct",
-                        title="Acceptance rate by model (%)")
+                        title="Q9 — Acceptance rate by model (%)")
     accept_fig.update_traces(marker_color=BLUE)
     right.plotly_chart(accept_fig, use_container_width=True)
-    st.dataframe(
-        q("""
-            select workflow, model, count(*) as interactions,
-                   round(avg(total_tokens)) as avg_tokens,
-                   round(sum(cost_usd_estimated), 4) as est_cost_usd
-            from fact_ai_interactions group by all order by interactions desc
-        """),
-        use_container_width=True,
-    )
+    st.subheader("Q2 — AI interactions by workflow and model")
+    st.dataframe(q("select * from rpt_ai_interactions_by_workflow_model"),
+                 use_container_width=True)
 
 with tab_quality:
+    top_left, top_right = st.columns(2)
+    rejected = q("""
+        select account_name, rejected_responses, rejection_rate_pct
+        from rpt_rejected_responses_by_account order by rejected_responses
+    """)
+    rej_fig = px.bar(rejected, x="rejected_responses", y="account_name",
+                     orientation="h", color="account_name",
+                     color_discrete_map=ACCOUNT_COLORS, labels=LABELS,
+                     title="Q6 — Rejected responses by account")
+    rej_fig.update_layout(showlegend=False)
+    top_left.plotly_chart(rej_fig, use_container_width=True)
+
+    top_right.subheader("Q7 — Users with unusually high error rates")
+    top_right.dataframe(q("select * from rpt_high_error_rate_users"),
+                        use_container_width=True)
+    top_right.caption("Above mean + 2 sigma of per-user error rates, min 10 events.")
+
+    st.divider()
     left, right = st.columns(2)
     reasons = q("""
         select case when rejection_reason like 'malformed_json%' then 'malformed_json'
@@ -170,10 +199,10 @@ with tab_quality:
         from rejected_events group by reason order by rows desc
     """)
     reasons_fig = px.bar(reasons, x="rows", y="reason", orientation="h",
-                         title="Rejected rows by reason")
+                         title="Pipeline — rejected rows by reason")
     reasons_fig.update_traces(marker_color=BLUE)
     left.plotly_chart(reasons_fig, use_container_width=True)
-    right.subheader("Rejected rows")
+    right.subheader("Pipeline — rejected rows")
     right.dataframe(
         q("""
             select rejection_stage, rejection_reason, event_id,
