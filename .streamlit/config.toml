@@ -1,0 +1,10 @@
+# First Day brand theme (extracted from firstday.com)
+[theme]
+base = "light"
+primaryColor = "#486CED"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2FBFF"
+textColor = "#2C3D50"
+
+[server]
+headless = true

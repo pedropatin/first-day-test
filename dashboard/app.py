@@ -1,14 +1,59 @@
-"""Streamlit dashboard over the mart tables. Run: make dashboard"""
+"""Streamlit dashboard over the mart tables, in First Day's visual identity.
+
+Brand: blue #486CED, ink #2C3D50, light surface #F2FBFF (firstday.com);
+Fraunces for titles, Poppins for body. Chart palette derived from the brand
+hues and validated for colorblind safety (fixed order, color follows the
+account). Run: make dashboard
+"""
 
 from pathlib import Path
 
 import duckdb
 import plotly.express as px
+import plotly.io as pio
 import streamlit as st
 
-DB_PATH = Path(__file__).resolve().parents[1] / "data" / "processed" / "firstday.duckdb"
+REPO = Path(__file__).resolve().parents[1]
+DB_PATH = REPO / "data" / "processed" / "firstday.duckdb"
+LOGO = str(REPO / "dashboard" / "assets" / "firstday_logo.png")
 
-st.set_page_config(page_title="First Day — AI Usage", layout="wide")
+BLUE, INK, SURFACE = "#486CED", "#2C3D50", "#F2FBFF"
+# Validated categorical palette (fixed order — color follows the account).
+CATEGORICAL = ["#486CED", "#D98E00", "#1F9BB8", "#E0577C",
+               "#8A5BE0", "#12714C", "#C94F9E", "#7A8B21"]
+
+st.set_page_config(page_title="First Day — AI Usage", page_icon=LOGO, layout="wide")
+
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Poppins:wght@400;500;600&display=swap');
+html, body, [class*="css"], p, div, span, label { font-family: 'Poppins', sans-serif; }
+h1, h2, h3 { font-family: 'Fraunces', serif !important; color: #2C3D50; }
+h1 { font-weight: 600; }
+[data-testid="stMetric"] {
+    background: #F2FBFF; border: 1px solid #E1EFFB;
+    border-radius: 16px; padding: 14px 18px;
+}
+[data-testid="stMetricValue"] { font-family: 'Fraunces', serif; color: #486CED; }
+[data-testid="stMetricLabel"] { color: #2C3D50; }
+button[data-baseweb="tab"] { font-family: 'Poppins', sans-serif; font-weight: 500; }
+</style>
+""", unsafe_allow_html=True)
+
+# Plotly template in the same identity.
+fd_template = pio.templates["plotly_white"].layout.template
+fd_template.layout.font = dict(family="Poppins, sans-serif", color=INK, size=13)
+fd_template.layout.title = dict(font=dict(family="Fraunces, serif", size=18, color=INK))
+fd_template.layout.colorway = CATEGORICAL
+fd_template.layout.paper_bgcolor = "rgba(0,0,0,0)"
+fd_template.layout.plot_bgcolor = "rgba(0,0,0,0)"
+fd_template.layout.xaxis = dict(gridcolor="#EAF3FB", zerolinecolor="#EAF3FB")
+fd_template.layout.yaxis = dict(gridcolor="#EAF3FB", zerolinecolor="#EAF3FB")
+fd_template.layout.legend = dict(orientation="h", yanchor="bottom", y=1.02, x=0)
+fd_template.layout.margin = dict(t=130)
+fd_template.layout.title.y = 0.98
+pio.templates["firstday"] = fd_template
+px.defaults.template = "firstday"
 
 
 @st.cache_data
@@ -21,7 +66,16 @@ if not DB_PATH.exists():
     st.error("Database not found. Run `make run` first.")
     st.stop()
 
-st.title("AI usage — 3-day sample")
+# Fixed account -> color mapping, shared by every chart.
+account_names = q("select account_name from dim_accounts order by account_id")
+ACCOUNT_COLORS = {
+    name: CATEGORICAL[i % len(CATEGORICAL)]
+    for i, name in enumerate(account_names["account_name"])
+}
+
+head_logo, head_title = st.columns([1, 11])
+head_logo.image(LOGO, width=72)
+head_title.title("AI usage — 3-day sample")
 
 # ---- KPIs -------------------------------------------------------------------
 k = q("""
@@ -47,9 +101,9 @@ tab_funnel, tab_cost, tab_models, tab_quality = st.tabs(
 
 with tab_funnel:
     funnel = q("select stage, sessions from rpt_session_funnel order by stage_order")
-    st.plotly_chart(
-        px.funnel(funnel, x="sessions", y="stage"), use_container_width=True
-    )
+    fig = px.funnel(funnel, x="sessions", y="stage")
+    fig.update_traces(marker_color=BLUE, textfont=dict(family="Poppins", color="white"))
+    st.plotly_chart(fig, use_container_width=True)
 
 with tab_cost:
     left, right = st.columns(2)
@@ -57,21 +111,25 @@ with tab_cost:
         select event_date, account_name, ai_cost_usd_estimated
         from daily_account_metrics order by event_date
     """)
-    left.plotly_chart(
-        px.bar(daily_cost, x="event_date", y="ai_cost_usd_estimated",
-               color="account_name",
-               title="Daily estimated AI cost by account"),
-        use_container_width=True,
-    )
+    labels = {"event_date": "", "account_name": "account",
+              "ai_cost_usd_estimated": "USD (estimated)", "events": "events"}
+    cost_fig = px.bar(daily_cost, x="event_date", y="ai_cost_usd_estimated",
+                      color="account_name", color_discrete_map=ACCOUNT_COLORS,
+                      labels=labels, title="Daily estimated AI cost by account")
+    cost_fig.update_xaxes(dtick=86400000, tickformat="%b %d")
+    left.plotly_chart(cost_fig, use_container_width=True)
     growth = q("""
         select event_date, account_name, events
         from daily_account_metrics order by event_date
     """)
-    right.plotly_chart(
-        px.line(growth, x="event_date", y="events", color="account_name",
-                markers=True, title="Daily events by account"),
-        use_container_width=True,
-    )
+    growth_fig = px.line(growth, x="event_date", y="events", color="account_name",
+                         color_discrete_map=ACCOUNT_COLORS, markers=True,
+                         labels=labels, title="Daily events by account")
+    growth_fig.update_xaxes(dtick=86400000, tickformat="%b %d")
+    right.plotly_chart(growth_fig, use_container_width=True)
+    with st.expander("Data table"):
+        st.dataframe(q("select * from rpt_daily_cost_by_account"),
+                     use_container_width=True)
 
 with tab_models:
     left, right = st.columns(2)
@@ -82,17 +140,17 @@ with tab_models:
     left.plotly_chart(
         px.bar(latency.melt(id_vars="model", var_name="metric", value_name="ms"),
                x="model", y="ms", color="metric", barmode="group",
+               color_discrete_map={"median_ms": BLUE, "p95_ms": "#D98E00"},
                title="Latency by model (median vs p95)"),
         use_container_width=True,
     )
     acceptance = q(
         "select model, acceptance_rate_pct from rpt_acceptance_by_model"
     )
-    right.plotly_chart(
-        px.bar(acceptance, x="model", y="acceptance_rate_pct",
-               title="Acceptance rate by model (%)"),
-        use_container_width=True,
-    )
+    accept_fig = px.bar(acceptance, x="model", y="acceptance_rate_pct",
+                        title="Acceptance rate by model (%)")
+    accept_fig.update_traces(marker_color=BLUE)
+    right.plotly_chart(accept_fig, use_container_width=True)
     st.dataframe(
         q("""
             select workflow, model, count(*) as interactions,
@@ -111,11 +169,10 @@ with tab_quality:
                count(*) as rows
         from rejected_events group by reason order by rows desc
     """)
-    left.plotly_chart(
-        px.bar(reasons, x="rows", y="reason", orientation="h",
-               title="Rejected rows by reason"),
-        use_container_width=True,
-    )
+    reasons_fig = px.bar(reasons, x="rows", y="reason", orientation="h",
+                         title="Rejected rows by reason")
+    reasons_fig.update_traces(marker_color=BLUE)
+    left.plotly_chart(reasons_fig, use_container_width=True)
     right.subheader("Rejected rows")
     right.dataframe(
         q("""
