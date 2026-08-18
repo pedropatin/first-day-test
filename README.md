@@ -16,6 +16,7 @@ make analytics   # print the answers to the 9 analytics questions
 make test        # pytest (ingestion + transform on a fixture dataset)
 make dashboard   # Streamlit dashboard at localhost:8501
 make docs        # dbt lineage graph + table/column docs at localhost:8080
+make explore     # browse every table in the DuckDB UI (read-only)
 ```
 
 ## How it works
@@ -56,6 +57,7 @@ raw_events + raw_ingest_rejections == stg_events + rejected_events
 src/ingest.py                 load raw files into DuckDB (idempotent per file)
 src/validate.py               human-readable report + reconciliation gate
 src/run_analytics.py          prints the rpt_* views
+src/explore.py                DuckDB UI over the database, read-only
 sql/create_tables.sql         raw-layer DDL, executed by ingest.py
 dbt/models/staging/           int_events_classified, stg_events, rejected_events
 dbt/models/marts/             dims, facts, daily_account_metrics

@@ -86,4 +86,3 @@ in the dbt layer once, not re-derived per dashboard.
 - CI pipeline, containerization.
 - Strict funnel stage ordering by timestamp (flags are "ever happened").
 - Cost anomaly detection and seat-utilization metrics.
-- dbt docs site generation.
