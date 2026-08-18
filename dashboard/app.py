@@ -22,7 +22,7 @@ BLUE, INK, SURFACE = "#486CED", "#2C3D50", "#F2FBFF"
 CATEGORICAL = ["#486CED", "#D98E00", "#1F9BB8", "#E0577C",
                "#8A5BE0", "#12714C", "#C94F9E", "#7A8B21"]
 
-st.set_page_config(page_title="First Day — AI Usage", page_icon=LOGO, layout="wide")
+st.set_page_config(page_title="First Light · First Day", page_icon=LOGO, layout="wide")
 
 st.markdown("""
 <style>
@@ -81,7 +81,14 @@ ACCOUNT_COLORS = {
 
 head_logo, head_title = st.columns([1, 11])
 head_logo.image(LOGO, width=72)
-head_title.title("AI usage — 3-day sample")
+head_title.markdown(
+    """<div style='font-family:Poppins,sans-serif;font-size:0.8rem;letter-spacing:0.12em;
+        text-transform:uppercase;color:#486CED;font-weight:600'>First Day · AI workflow intelligence</div>
+    <h1 style='margin:0 0 0.1rem 0'>First Light</h1>
+    <div style='color:#5B7086;font-size:0.95rem'>What three days of AI usage say about
+    adoption, cost and quality · Aug 1–3, 2026</div>""",
+    unsafe_allow_html=True,
+)
 
 # ---- KPIs -------------------------------------------------------------------
 k = q("""
