@@ -2,8 +2,9 @@
 
 Local pipeline: raw JSONL/CSV → DuckDB → dbt → a Streamlit dashboard.
 One rule explains the whole repo: **`src/ingest.py` loads the raw files; dbt
-does everything else.** Layers follow the dbt convention, carried by table
-prefixes: `raw_*` → `stg_*` → `dim_*`/`fact_*` → `rpt_*`.
+does everything else.** Layers follow the dbt convention as DuckDB schemas —
+`raw` → `staging` → `marts` → `reports` — with matching table prefixes
+(`raw_*`, `stg_*`, `dim_*`/`fact_*`, `rpt_*`).
 
 ## Quickstart
 
@@ -25,18 +26,22 @@ make explore     # browse every table in the DuckDB UI (read-only)
 data/raw/*.jsonl,*.csv
    │  src/ingest.py — parse only; keep every parseable line verbatim
    ▼
-raw_events / raw_ingest_rejections / raw_accounts / raw_users
+raw       raw_events / raw_ingest_rejections / raw_accounts / raw_users
    │  dbt staging — type, flatten JSON, classify, dedup     (views)
    ▼
-stg_events + rejected_events
+staging   stg_events + rejected_events
    │  dbt marts — analyst-facing                            (tables)
    ▼
-dim_accounts, dim_users, fact_ai_interactions, fact_sessions,
-daily_account_metrics
+marts     dim_accounts, dim_users, fact_ai_interactions, fact_sessions,
+          daily_account_metrics
    │  dbt marts/reports — the analytics questions           (views)
    ▼
-rpt_daily_active_users ... rpt_acceptance_by_model  (one per question)
+reports   rpt_daily_active_users ... rpt_acceptance_by_model  (one per question)
 ```
+
+Each layer is a DuckDB schema, so the database browses like the pipeline
+reads: `raw` is the untouched input (and the only place with unmasked PII),
+`staging` holds the rules, `marts` and `reports` are the analyst surface.
 
 Everything after ingestion is one dbt DAG — run `make docs` to browse it as
 an interactive lineage graph with every table and column described.
@@ -67,7 +72,6 @@ dbt/seeds/                    expected_event_names.csv — the event-name contra
 tests/                        pytest: ingestion + full dbt build on a fixture dataset
 dashboard/app.py              Streamlit, reads marts and rpt_* views
 docs/design.md                production design note
-docs/decisions.md             technical decision records (why, and what each accepts)
 docs/ASSIGNMENT.md            original assignment
 ```
 

@@ -73,7 +73,7 @@ if not DB_PATH.exists():
     st.stop()
 
 # Fixed account -> color mapping, shared by every chart.
-account_names = q("select account_name from dim_accounts order by account_id")
+account_names = q("select account_name from marts.dim_accounts order by account_id")
 ACCOUNT_COLORS = {
     name: CATEGORICAL[i % len(CATEGORICAL)]
     for i, name in enumerate(account_names["account_name"])
@@ -93,12 +93,12 @@ head_title.markdown(
 # ---- KPIs -------------------------------------------------------------------
 k = q("""
     select
-        (select count(distinct user_id) from stg_events)            as users,
-        (select count(*) from fact_sessions)                        as sessions,
-        (select count(*) from fact_ai_interactions)                 as interactions,
-        (select round(sum(ai_cost_usd_estimated), 2) from daily_account_metrics) as cost,
+        (select count(distinct user_id) from staging.stg_events)            as users,
+        (select count(*) from marts.fact_sessions)                        as sessions,
+        (select count(*) from marts.fact_ai_interactions)                 as interactions,
+        (select round(sum(ai_cost_usd_estimated), 2) from marts.daily_account_metrics) as cost,
         (select round(100.0 * count(*) filter (has_workflow_completed)
-                / count(*), 1) from fact_sessions where has_session_started) as completion
+                / count(*), 1) from marts.fact_sessions where has_session_started) as completion
 """).iloc[0]
 
 c1, c2, c3, c4, c5 = st.columns(5)
@@ -114,7 +114,7 @@ tab_funnel, tab_usage, tab_cost, tab_models, tab_quality = st.tabs(
 
 with tab_funnel:
     section("Q5 — Session conversion funnel")
-    funnel = q("select stage, sessions from rpt_session_funnel order by stage_order")
+    funnel = q("select stage, sessions from reports.rpt_session_funnel order by stage_order")
     fig = px.funnel(funnel, x="sessions", y="stage")
     fig.update_traces(marker_color=BLUE, textfont=dict(family="Poppins", color="white"))
     st.plotly_chart(fig, use_container_width=True)
@@ -127,7 +127,7 @@ with tab_usage:
     left, right = st.columns(2)
     dau = q("""
         select event_date, account_name, active_users
-        from rpt_daily_active_users
+        from reports.rpt_daily_active_users
     """)
     section("Q1 — Daily active users by account", left)
     dau_fig = px.line(dau, x="event_date", y="active_users", color="account_name",
@@ -136,7 +136,7 @@ with tab_usage:
     left.plotly_chart(dau_fig, use_container_width=True)
 
     growth = q("""
-        select account_name, growth_pct from rpt_account_usage_growth
+        select account_name, growth_pct from reports.rpt_account_usage_growth
         order by growth_pct
     """)
     section("Q8 — Usage growth, day 3 vs day 1 (%)", right)
@@ -150,7 +150,7 @@ with tab_usage:
 with tab_cost:
     daily_cost = q("""
         select event_date, account_name, ai_cost_usd_estimated
-        from daily_account_metrics order by event_date
+        from marts.daily_account_metrics order by event_date
     """)
     section("Q4 — Daily estimated AI cost by account")
     cost_fig = px.bar(daily_cost, x="event_date", y="ai_cost_usd_estimated",
@@ -159,14 +159,14 @@ with tab_cost:
     cost_fig.update_xaxes(dtick=86400000, tickformat="%b %d")
     st.plotly_chart(cost_fig, use_container_width=True)
     with st.expander("Data table"):
-        st.dataframe(q("select * from rpt_daily_cost_by_account"),
+        st.dataframe(q("select * from reports.rpt_daily_cost_by_account"),
                      use_container_width=True)
 
 with tab_models:
     left, right = st.columns(2)
     latency = q("""
         select model, median_latency_ms as median_ms, p95_latency_ms as p95_ms
-        from rpt_latency_by_model order by median_ms
+        from reports.rpt_latency_by_model order by median_ms
     """)
     section("Q3 — Latency by model (median vs p95)", left)
     left.plotly_chart(
@@ -176,21 +176,21 @@ with tab_models:
         use_container_width=True,
     )
     acceptance = q(
-        "select model, acceptance_rate_pct from rpt_acceptance_by_model"
+        "select model, acceptance_rate_pct from reports.rpt_acceptance_by_model"
     )
     section("Q9 — Acceptance rate by model (%)", right)
     accept_fig = px.bar(acceptance, x="model", y="acceptance_rate_pct")
     accept_fig.update_traces(marker_color=BLUE)
     right.plotly_chart(accept_fig, use_container_width=True)
     section("Q2 — AI interactions by workflow and model")
-    st.dataframe(q("select * from rpt_ai_interactions_by_workflow_model"),
+    st.dataframe(q("select * from reports.rpt_ai_interactions_by_workflow_model"),
                  use_container_width=True)
 
 with tab_quality:
     top_left, top_right = st.columns(2)
     rejected = q("""
         select account_name, rejected_responses, rejection_rate_pct
-        from rpt_rejected_responses_by_account order by rejected_responses
+        from reports.rpt_rejected_responses_by_account order by rejected_responses
     """)
     section("Q6 — Rejected responses by account", top_left)
     rej_fig = px.bar(rejected, x="rejected_responses", y="account_name",
@@ -200,7 +200,7 @@ with tab_quality:
     top_left.plotly_chart(rej_fig, use_container_width=True)
 
     section("Q7 — Users with unusually high error rates", top_right)
-    top_right.dataframe(q("select * from rpt_high_error_rate_users"),
+    top_right.dataframe(q("select * from reports.rpt_high_error_rate_users"),
                         use_container_width=True)
     top_right.caption("Above mean + 2 sigma of per-user error rates, min 10 events.")
 
@@ -210,7 +210,7 @@ with tab_quality:
         select case when rejection_reason like 'malformed_json%' then 'malformed_json'
                     else rejection_reason end as reason,
                count(*) as rows
-        from rejected_events group by reason order by rows desc
+        from staging.rejected_events group by reason order by rows desc
     """)
     section("Pipeline — rejected rows by reason", left)
     reasons_fig = px.bar(reasons, x="rows", y="reason", orientation="h")
@@ -221,7 +221,7 @@ with tab_quality:
         q("""
             select rejection_stage, rejection_reason, event_id,
                    source_file, line_number
-            from rejected_events order by source_file, line_number
+            from staging.rejected_events order by source_file, line_number
         """),
         use_container_width=True,
     )

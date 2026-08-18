@@ -11,14 +11,23 @@ analysis-paths: ["analyses"]
 target-path: target
 clean-targets: [target, dbt_packages]
 
-# One schema; table prefixes carry the layer (raw_ -> stg_ -> dim_/fact_).
-# Staging and reports are views — they hold rules, not state; the core
-# marts are tables for stable, fast reads.
+# Schemas mirror the dbt layers: raw -> staging -> marts -> reports
+# (generate_schema_name macro uses these names as-is). Staging and reports
+# are views — they hold rules, not state; the core marts are tables for
+# stable, fast reads.
 models:
   firstday:
     staging:
       +materialized: view
+      +schema: staging
     marts:
       +materialized: table
+      +schema: marts
       reports:
         +materialized: view
+        +schema: reports
+
+# The event-name contract lives with the staging rules that consume it.
+seeds:
+  firstday:
+    +schema: staging

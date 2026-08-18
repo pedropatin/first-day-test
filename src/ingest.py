@@ -98,18 +98,18 @@ def ingest_events_file(
             )
 
     # Replace this file's rows so re-runs are idempotent.
-    con.execute("DELETE FROM raw_events WHERE source_file = ?", [source_file])
+    con.execute("DELETE FROM raw.raw_events WHERE source_file = ?", [source_file])
     con.execute(
-        "DELETE FROM raw_ingest_rejections WHERE source_file = ?", [source_file]
+        "DELETE FROM raw.raw_ingest_rejections WHERE source_file = ?", [source_file]
     )
     if events:
         con.executemany(
-            "INSERT INTO raw_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO raw.raw_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             events,
         )
     if rejections:
         con.executemany(
-            "INSERT INTO raw_ingest_rejections VALUES (?, ?, ?, ?, ?)", rejections
+            "INSERT INTO raw.raw_ingest_rejections VALUES (?, ?, ?, ?, ?)", rejections
         )
     return len(events), len(rejections)
 
@@ -151,10 +151,10 @@ def run_ingest(raw_dir: Path, db_path: Path) -> IngestStats:
         print(f"  {path.name}: {loaded} events, {rejected} rejected lines")
 
     stats.accounts_loaded = ingest_csv(
-        con, raw_dir / "accounts.csv", "raw_accounts", ingested_at
+        con, raw_dir / "accounts.csv", "raw.raw_accounts", ingested_at
     )
     stats.users_loaded = ingest_csv(
-        con, raw_dir / "users.csv", "raw_users", ingested_at
+        con, raw_dir / "users.csv", "raw.raw_users", ingested_at
     )
     print(f"  accounts.csv: {stats.accounts_loaded} rows")
     print(f"  users.csv: {stats.users_loaded} rows")

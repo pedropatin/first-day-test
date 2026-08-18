@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     con = duckdb.connect(str(args.db), read_only=True)
     for number, view, title in reports:
         print(f"\n{'=' * 78}\n{number}. {title}  [{view}]\n{'=' * 78}")
-        print(con.execute(f"select * from {view}").df().to_string(index=False))
+        print(con.execute(f"select * from reports.{view}").df().to_string(index=False))
     con.close()
     return 0
 

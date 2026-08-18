@@ -25,9 +25,10 @@ DEFAULT_DB_PATH = REPO_ROOT / "data" / "processed" / "firstday.duckdb"
 DEFAULT_REPORT_PATH = REPO_ROOT / "data" / "processed" / "validation_report.md"
 
 TABLES = (
-    "raw_events", "raw_ingest_rejections", "raw_accounts", "raw_users",
-    "stg_events", "rejected_events", "dim_accounts", "dim_users",
-    "fact_ai_interactions", "fact_sessions", "daily_account_metrics",
+    "raw.raw_events", "raw.raw_ingest_rejections", "raw.raw_accounts",
+    "raw.raw_users", "staging.stg_events", "staging.rejected_events",
+    "marts.dim_accounts", "marts.dim_users", "marts.fact_ai_interactions",
+    "marts.fact_sessions", "marts.daily_account_metrics",
 )
 
 
@@ -49,17 +50,17 @@ def run_report(db_path: Path, report_path: Path) -> bool:
                case when rejection_reason like 'malformed_json%' then 'malformed_json'
                     else rejection_reason end as reason,
                count(*)
-        from rejected_events group by 1, 2 order by 1, 3 desc
+        from staging.rejected_events group by 1, 2 order by 1, 3 desc
         """
     ).fetchall():
         lines.append(f"| {stage} | {reason} | {n} |")
 
     raw, malformed, staged, rejected = con.execute(
         """
-        select (select count(*) from raw_events),
-               (select count(*) from raw_ingest_rejections),
-               (select count(*) from stg_events),
-               (select count(*) from rejected_events)
+        select (select count(*) from raw.raw_events),
+               (select count(*) from raw.raw_ingest_rejections),
+               (select count(*) from staging.stg_events),
+               (select count(*) from staging.rejected_events)
         """
     ).fetchone()
     con.close()
