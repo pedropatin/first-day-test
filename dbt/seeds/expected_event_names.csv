@@ -1,0 +1,10 @@
+event_name
+user_invited
+user_signed_up
+session_started
+prompt_submitted
+ai_response_generated
+response_accepted
+response_rejected
+workflow_completed
+error_raised

@@ -45,13 +45,10 @@ CHECKS: list[Check] = [
         """,
     ),
     Check(
-        "event_name within expected values",
+        "event_name within expected values (from seed)",
         """
         select count(*) from silver.stg_events
-        where event_name not in (
-            'user_invited','user_signed_up','session_started','prompt_submitted',
-            'ai_response_generated','response_accepted','response_rejected',
-            'workflow_completed','error_raised')
+        where event_name not in (select event_name from expected_event_names)
         """,
     ),
     Check(

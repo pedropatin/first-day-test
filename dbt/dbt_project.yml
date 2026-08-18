@@ -5,6 +5,7 @@ profile: firstday
 model-paths: ["models"]
 macro-paths: ["macros"]
 test-paths: ["tests"]
+seed-paths: ["seeds"]
 analysis-paths: ["analyses"]
 
 target-path: target

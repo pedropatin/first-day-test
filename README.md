@@ -52,10 +52,12 @@ sql/create_tables.sql         raw-layer DDL
 sql/analytics/q1..q9.sql      one file per business question (q9 is extra)
 dbt/models/staging/           int_events_classified, stg_events, rejected_events
 dbt/models/marts/             dims, facts, daily_account_metrics
-dbt/models/schema.yml         38 schema tests (unique, not_null, relationships, non_negative)
+dbt/seeds/                    expected_event_names.csv — the event-name contract
+dbt/models/schema.yml         schema tests (unique, not_null, relationships, non_negative)
 tests/                        pytest: ingestion + full dbt build on a fixture dataset
 dashboard/app.py              Streamlit
 docs/design.md                production design note
+docs/decisions.md             technical decision records (why, and what each accepts)
 docs/ASSIGNMENT.md            original assignment
 ```
 

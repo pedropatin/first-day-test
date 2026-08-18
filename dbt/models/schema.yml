@@ -27,18 +27,12 @@ models:
       - name: event_name
         tests:
           - not_null
-          - accepted_values:
+          # accepted values come from the expected_event_names seed, the
+          # single source of truth for the event-name contract
+          - relationships:
               arguments:
-                values:
-                  - user_invited
-                  - user_signed_up
-                  - session_started
-                  - prompt_submitted
-                  - ai_response_generated
-                  - response_accepted
-                  - response_rejected
-                  - workflow_completed
-                  - error_raised
+                to: ref('expected_event_names')
+                field: event_name
       - name: prompt_tokens
         tests: [non_negative]
       - name: completion_tokens

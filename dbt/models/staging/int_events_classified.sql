@@ -55,12 +55,12 @@ classified as (
                 then 'missing_event_id'
             when typed.event_ts is null
                 then 'unparseable_event_ts'
-            when typed.event_name not in (
-                'user_invited', 'user_signed_up', 'session_started',
-                'prompt_submitted', 'ai_response_generated',
-                'response_accepted', 'response_rejected',
-                'workflow_completed', 'error_raised'
-            )
+            -- the event-name contract lives in one seed file, shared with
+            -- the schema tests and validate.py
+            when typed.event_name is null
+                 or typed.event_name not in (
+                     select event_name from {{ ref('expected_event_names') }}
+                 )
                 then 'unknown_event_name'
 
             -- 2. required identifiers (session not required for invite/signup,
