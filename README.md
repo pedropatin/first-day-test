@@ -198,6 +198,11 @@ includes descriptions for models and columns, attached tests, source tables,
 and lineage from ingestion through the final report views. Generated files stay
 under `dbt/target/` and are not committed.
 
+The example below shows the documented grain, columns, types, and attached
+tests for `daily_account_metrics`.
+
+![dbt Docs page for the daily account metrics model](docs/assets/dbt_docs_model.png)
+
 For non-interactive environments, `make docs-generate` builds the same catalog
 without starting the server. CI runs this command after the pipeline build so
 documentation errors fail the workflow.
