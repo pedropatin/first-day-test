@@ -4,8 +4,7 @@ seeds:
   - name: expected_event_names
     description: >
       The event-name contract — single source of truth for valid event_name
-      values, shared by the classification model, the schema tests, and
-      src/validate.py.
+      values, shared by the classification model and schema tests.
     columns:
       - name: event_name
         description: A valid event type.
@@ -19,6 +18,61 @@ models:
       present). Types every field, flattens `properties`, and assigns at
       most one rejection_reason per row (first failing rule wins).
       stg_events and rejected_events both derive from it.
+    columns:
+      - name: event_id
+        description: Event identifier as received.
+      - name: event_ts
+        description: Parsed event timestamp; null when the source value is invalid.
+      - name: event_ts_raw
+        description: Original event timestamp string used to explain parse failures.
+      - name: received_ts
+        description: Parsed timestamp when the event reached the pipeline.
+      - name: account_id
+        description: Account identifier as received.
+      - name: user_id
+        description: User identifier as received.
+      - name: session_id
+        description: Session identifier as received.
+      - name: event_name
+        description: Event type as received.
+      - name: workflow
+        description: Workflow extracted from the properties object.
+      - name: model
+        description: AI model extracted from the properties object.
+      - name: prompt_tokens
+        description: Parsed prompt token count.
+      - name: completion_tokens
+        description: Parsed completion token count.
+      - name: latency_ms
+        description: Parsed AI response latency in milliseconds.
+      - name: cost_usd
+        description: Parsed reported AI cost in US dollars.
+      - name: accepted
+        description: Parsed response acceptance flag.
+      - name: duration_ms
+        description: Parsed workflow duration in milliseconds.
+      - name: prompt_length_chars
+        description: Parsed prompt length in characters.
+      - name: device
+        description: Device extracted from the properties object.
+      - name: error_code
+        description: Error code extracted from the properties object.
+      - name: rejected_reason_text
+        description: Product-level rejection reason from the properties object.
+      - name: invite_channel
+        description: Invite channel extracted from the properties object.
+      - name: raw_payload
+        description: Complete parsed JSON payload retained for debugging.
+      - name: source_file
+        description: Event file that supplied the row.
+      - name: line_number
+        description: One-based line number in the source file.
+      - name: ingested_at
+        description: UTC timestamp when the row was loaded.
+      - name: user_home_account_id
+        description: Account associated with the user in raw user metadata.
+      - name: rejection_reason
+        description: First validation failure, or duplicate marker; null when valid.
 
   - name: stg_events
     description: >
@@ -328,18 +382,32 @@ models:
   - name: rpt_daily_active_users
     description: "Q1 — daily active users by account."
     columns:
+      - name: event_date
+        description: Activity date, derived from event_ts.
+      - name: account_id
+        description: Account identifier.
+      - name: account_name
+        description: Account display name.
       - name: active_users
         description: Distinct users with at least one valid event that day.
 
   - name: rpt_ai_interactions_by_workflow_model
     description: "Q2 — AI interactions by workflow and model."
     columns:
+      - name: workflow
+        description: Product workflow served by the model call.
+      - name: model
+        description: AI model used for the interaction.
       - name: ai_interactions
         description: Count of ai_response_generated events.
 
   - name: rpt_latency_by_model
     description: "Q3 — median and p95 latency by model."
     columns:
+      - name: model
+        description: AI model used for the interaction.
+      - name: interactions
+        description: Number of AI interactions in the latency sample.
       - name: median_latency_ms
         description: Interpolated median latency.
       - name: p95_latency_ms
@@ -348,10 +416,20 @@ models:
   - name: rpt_daily_cost_by_account
     description: "Q4 — daily estimated AI cost by account (reported and imputed)."
     columns:
+      - name: event_date
+        description: Activity date, derived from event_ts.
+      - name: account_id
+        description: Account identifier.
+      - name: account_name
+        description: Account display name.
       - name: ai_cost_usd
         description: Reported cost only.
       - name: ai_cost_usd_estimated
         description: Reported plus per-model imputation for missing costs.
+      - name: ai_interactions
+        description: Number of AI interactions for the account and date.
+      - name: uncosted_interactions
+        description: Interactions whose reported cost was missing and imputed.
 
   - name: rpt_session_funnel
     description: >
@@ -360,6 +438,8 @@ models:
     columns:
       - name: stage_order
         description: Funnel position (1-5).
+      - name: stage
+        description: Event represented by the funnel stage.
       - name: sessions
         description: Sessions that reached this and all previous stages.
       - name: pct_of_started
@@ -368,23 +448,65 @@ models:
   - name: rpt_rejected_responses_by_account
     description: "Q6 — top accounts by rejected responses."
     columns:
+      - name: account_id
+        description: Account identifier.
+      - name: account_name
+        description: Account display name.
+      - name: rejected_responses
+        description: Number of explicit response_rejected events.
+      - name: accepted_responses
+        description: Number of explicit response_accepted events.
       - name: rejection_rate_pct
         description: Rejections over explicit accept/reject decisions only.
 
   - name: rpt_high_error_rate_users
     description: "Q7 — users above mean + 2 sigma error rate (min 10 events)."
     columns:
+      - name: user_id
+        description: User identifier.
+      - name: account_id
+        description: Account associated with the user.
+      - name: events
+        description: Total valid events produced by the user.
+      - name: errors
+        description: Number of error_raised events produced by the user.
+      - name: error_rate_pct
+        description: Errors as a percentage of the user's valid events.
       - name: threshold_pct
         description: The computed cutoff, included so the flag is auditable.
 
   - name: rpt_account_usage_growth
     description: "Q8 — event growth, last day vs first day of the sample."
     columns:
+      - name: account_id
+        description: Account identifier.
+      - name: account_name
+        description: Account display name.
+      - name: first_day_events
+        description: Valid events on the first date in the sample.
+      - name: last_day_events
+        description: Valid events on the last date in the sample.
+      - name: total_events
+        description: Valid events across the complete sample.
+      - name: absolute_growth
+        description: Last-day events minus first-day events.
       - name: growth_pct
         description: Direction only — three days is not a trend.
 
   - name: rpt_acceptance_by_model
     description: "Q9 (extra) — acceptance rate by model, with cost and latency."
     columns:
+      - name: model
+        description: AI model used for the interaction.
+      - name: ai_calls
+        description: Total AI interactions for the model.
+      - name: flagged_calls
+        description: AI interactions where the accepted flag was present.
+      - name: accepted_calls
+        description: Interactions where the accepted flag was true.
       - name: acceptance_rate_pct
         description: Accepted over calls where the accepted flag is present.
+      - name: avg_cost_usd
+        description: Average estimated cost per interaction.
+      - name: median_latency_ms
+        description: Median interaction latency in milliseconds.

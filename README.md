@@ -1,170 +1,228 @@
-# First Day — Data Engineering Take-Home
+# First Day Data Engineering Take-Home
 
-Local pipeline: raw JSONL/CSV → DuckDB → dbt → a Streamlit dashboard.
-One rule explains the whole repo: **`src/ingest.py` loads the raw files; dbt
-does everything else.** Layers follow the dbt convention as DuckDB schemas —
-`raw` → `staging` → `marts` → `reports` — with matching table prefixes
-(`raw_*`, `stg_*`, `dim_*`/`fact_*`, `rpt_*`).
+I used Python, DuckDB, and dbt for this assignment. Python is limited to loading
+the source files and producing a small validation report. I kept the business
+logic in dbt so that the transformations, tests, and lineage can be reviewed in
+one place.
 
-## Quickstart
+## Running the project
 
-Requires Python 3.10–3.13 and `make`.
+Python 3.10–3.13 and `make` are required.
 
 ```bash
-make setup       # venv + pinned dependencies
-make run         # ingest -> dbt build (models + 59 tests) -> validation report
-make analytics   # print the answers to the 9 analytics questions
-make test        # pytest (ingestion + transform on a fixture dataset)
-make dashboard   # Streamlit dashboard at localhost:8501
-make docs        # dbt lineage graph + table/column docs at localhost:8080
-make explore     # browse every table in the DuckDB UI (read-only)
+make setup       # create .venv and install dependencies
+make run         # ingest, run dbt models/tests, write validation report
+make analytics   # print the answers to the analytics questions
+make test        # run the pytest suite against a temporary fixture database
+make dashboard   # start Streamlit at localhost:8501
+make docs        # generate and serve dbt documentation at localhost:8080
+make explore     # open the DuckDB UI in read-only mode
 ```
 
-## How it works
+For a first run, use `make setup` followed by `make run`. On the supplied data,
+the pipeline produces 690 clean events and 35 rejected rows from 725 input
+lines.
 
-```
+## Pipeline structure
+
+```text
 data/raw/*.jsonl,*.csv
-   │  src/ingest.py — parse only; keep every parseable line verbatim
-   ▼
-raw       raw_events / raw_ingest_rejections / raw_accounts / raw_users
-   │  dbt staging — type, flatten JSON, classify, dedup     (views)
-   ▼
-staging   stg_events + rejected_events
-   │  dbt marts — analyst-facing                            (tables)
-   ▼
-marts     dim_accounts, dim_users, fact_ai_interactions, fact_sessions,
-          daily_account_metrics
-   │  dbt marts/reports — the analytics questions           (views)
-   ▼
-reports   rpt_daily_active_users ... rpt_acceptance_by_model  (one per question)
+        |
+        | src/ingest.py
+        v
+raw     raw_events, raw_ingest_rejections, raw_accounts, raw_users
+        |
+        | dbt staging models
+        v
+staging stg_events, rejected_events
+        |
+        | dbt mart models
+        v
+marts   dim_accounts, dim_users, fact_ai_interactions,
+        fact_sessions, daily_account_metrics
+        |
+        | dbt report models
+        v
+reports rpt_daily_active_users, rpt_session_funnel, ...
 ```
 
-Each layer is a DuckDB schema, so the database browses like the pipeline
-reads: `raw` is the untouched input (and the only place with unmasked PII),
-`staging` holds the rules, `marts` and `reports` are the analyst surface.
+I kept the complete parsed JSON payload in the raw event table, together with
+the source filename, line number, and load timestamp. Lines that cannot be
+parsed are stored separately with their original text. This gives both clean
+and rejected records a path back to the input file.
 
-Everything after ingestion is one dbt DAG — run `make docs` to browse it as
-an interactive lineage graph with every table and column described.
+On a rerun, ingestion replaces the rows associated with each source file before
+loading it again. That is enough to make this small file-based pipeline
+idempotent without introducing a separate load-control table.
 
-Design rule: **ingestion never drops or edits data**. Lines that fail JSON
-parsing go to `raw_ingest_rejections`; everything else lands in `raw_events`
-as-is (timestamps as strings). All judgment — casting, validation, dedup —
-lives in dbt, where each rule is a readable SQL case and every rejected row
-gets a reason. An invariant test guarantees no row is ever silently lost:
+## Validation and deduplication
 
+I chose a first-failure-wins rule for validation. It gives every rejected row a
+single, predictable reason and keeps the rejection report easy to read. The
+checks run in this order:
+
+| Order | Rejection reason | Check |
+|---:|---|---|
+| 1 | `missing_event_id` | `event_id` is absent or empty |
+| 2 | `unparseable_event_ts` | `event_ts` cannot be cast to a timestamp |
+| 3 | `unknown_event_name` | value is outside the expected event-name seed |
+| 4 | `missing_account_id` / `missing_user_id` | required ownership fields are absent |
+| 5 | `missing_session_id` | session is absent outside invite/signup events |
+| 6 | `negative_metric_value` | token, latency, cost, or duration value is negative |
+| 7 | `unknown_account` / `unknown_user` | metadata reference does not exist |
+| 8 | `user_account_mismatch` | user belongs to a different account |
+| 9 | `duplicate_event_id` | another valid copy of the event was kept |
+
+Malformed JSON and non-object JSON values are rejected during ingestion before
+these staging checks.
+
+For duplicate IDs, I keep the first record by
+`(received_ts, source_file, line_number)`. I do not reject late events: an event
+is flagged when `received_ts - event_ts > 1 hour`, but it is still reported on
+the date of `event_ts`.
+
+The pipeline also checks the accounting identity below, both in dbt and in the
+validation report:
+
+```text
+raw_events + raw_ingest_rejections = stg_events + rejected_events
 ```
-raw_events + raw_ingest_rejections == stg_events + rejected_events
+
+The sample result is:
+
+```text
+719 + 6 = 690 + 35
 ```
 
-### Layout
+## Models
 
-```
-src/ingest.py                 load raw files into DuckDB (idempotent per file)
-src/validate.py               human-readable report + reconciliation gate
-src/run_analytics.py          prints the rpt_* views
-src/explore.py                DuckDB UI over the database, read-only
-sql/create_tables.sql         raw-layer DDL, executed by ingest.py
-dbt/models/staging/           int_events_classified, stg_events, rejected_events
-dbt/models/marts/             dims, facts, daily_account_metrics
-dbt/models/marts/reports/     rpt_* — one view per analytics question
-dbt/models/schema.yml         every table and column described + 59 tests
-dbt/seeds/                    expected_event_names.csv — the event-name contract
-tests/                        pytest: ingestion + full dbt build on a fixture dataset
-dashboard/app.py              Streamlit, reads marts and rpt_* views
-docs/design.md                production design note
-docs/ASSIGNMENT.md            original assignment
-```
-
-### Mapping to the assignment's expected deliverables
-
-This project uses the assignment's Option B (dbt), so two expected files
-exist in dbt form:
-
-| assignment expects | here | why |
-|---|---|---|
-| `src/transform.py` | `dbt/models/` | transformations are versioned, tested SQL models instead of a script |
-| `sql/marts.sql` | `dbt/models/marts/*.sql` | same marts, one file per model with its grain documented |
-| analytics SQL queries | `dbt/models/marts/reports/rpt_*.sql` | each question is a view: uses ref(), tested, documented, in the lineage graph, and reused by the dashboard |
-| `rejected_events` from ingestion | `raw_ingest_rejections` + `rejected_events` | parse failures captured at ingest; the staging model unions them with validation rejects so all rejections live in one queryable table |
-| everything else | identical names and paths | — |
-
-## Rejection rules
-
-First failing rule wins; the row goes to `rejected_events` with that reason.
-
-| order | reason | rule |
-|---|---|---|
-| 1 | `malformed_json` / `not_a_json_object` | line isn't a JSON object (ingest stage) |
-| 2 | `missing_event_id` | no event_id |
-| 3 | `unparseable_event_ts` | event_ts doesn't cast to timestamp |
-| 4 | `unknown_event_name` | not one of the 9 expected names |
-| 5 | `missing_account_id` / `missing_user_id` | always required |
-| 6 | `missing_session_id` | required except `user_invited` / `user_signed_up` |
-| 7 | `negative_metric_value` | tokens, latency, cost or duration < 0 |
-| 8 | `unknown_account` / `unknown_user` / `user_account_mismatch` | fails referential check against metadata |
-| 9 | `duplicate_event_id` | later copy of an already-kept event |
-
-**Dedup tie-break:** first received wins — lowest `(received_ts, source_file,
-line_number)`. All duplicates in this sample are exact payload copies, so
-which copy wins doesn't change any metric; the rule just makes it deterministic.
-
-**Late events** (received_ts − event_ts > 1h) are kept and flagged `is_late`,
-and always count on the day of `event_ts`.
-
-On this sample: 725 input lines → 690 clean events + 35 rejected
-(6 malformed, 12 duplicates, 6 unknown event names, 3 negative metrics,
-5 bad references, 3 missing/invalid required fields). Full breakdown in
-`data/processed/validation_report.md` after `make run`.
-
-## Models and grains
-
-| model | grain |
+| Model | Grain |
 |---|---|
-| `stg_events` | one row per unique valid event |
-| `rejected_events` | one row per rejected line/event, with stage + reason + file/line |
-| `dim_accounts` / `dim_users` | one row per account / user (emails masked to domain) |
-| `fact_ai_interactions` | one row per `ai_response_generated` event, with known + estimated cost |
-| `fact_sessions` | one row per session, with funnel flags and totals |
-| `daily_account_metrics` | one row per (event_date, account_id) |
+| `stg_events` | one valid event per `event_id` |
+| `rejected_events` | one rejected source line or parsed event |
+| `dim_accounts` | one row per account |
+| `dim_users` | one row per user |
+| `fact_ai_interactions` | one `ai_response_generated` event |
+| `fact_sessions` | one row per `session_id` |
+| `daily_account_metrics` | one row per date and account |
 
-## Metric definitions worth stating
+`dim_users` exposes only a masked email domain. I left the full address in the
+raw schema because none of the requested analytics needs it.
 
-- **Active user** = distinct user with ≥1 valid event that day.
-- **AI cost** comes in two columns: `ai_cost_usd` sums only *reported*
-  `cost_usd`; `ai_cost_usd_estimated` imputes the 9 (of 138) missing costs as
-  tokens × the model's observed cost-per-token, with `is_cost_estimated`
-  marking imputed rows. Known total $1.85, estimated total $1.98.
-- **Funnel** = share of started sessions where each stage *ever* happened,
-  cumulatively (a stage only counts if all previous stages happened too).
-- **Rejection rate (Q6)** = rejected / (accepted + rejected) explicit
-  decisions, not / all AI responses — most responses get no decision event.
-- **Unusual error rate (Q7)** = above mean + 2σ of per-user rates, min 10 events.
-- **Growth (Q8)** = day-3 vs day-1 events. Three days is direction, not a trend.
+Nine AI calls have no reported cost. For those rows, I estimate cost from the
+model's observed cost per token in this sample. Reported and estimated costs
+remain separate, and `is_cost_estimated` identifies the imputed rows. This is a
+practical fallback for the exercise, not a substitute for provider billing
+data.
 
-## What the data says
+## Analytics definitions
 
-- **Funnel converts 55.7%** of started sessions into completed workflows; the
-  biggest single drop is response acceptance (87.3% → 67.7%).
-- **`gpt-5.5-mini` matches `gpt-5.5` on acceptance (75.6% vs 75.9%) at ~1/4
-  the cost per call and 2.5× the speed** (median 1.2s vs 3.0s) — the routing
-  decision the data argues for. `gpt-4.1` has the highest acceptance (84%)
-  but on only 25 flagged calls.
-- **Atlas Legal (acct_004) is a churn-risk signal**: highest rejection rate
-  (38.5%), usage down 50% over the sample, and the only user flagged for
-  unusual error rate (user_019) — worth a proactive check-in.
-- **Orbit People (acct_006) grew 178%** in three days; Cedar Finance
-  (acct_005) is the largest account by volume and cost (~$0.49 of $1.85 total).
+The eight requested queries are under `dbt/models/marts/reports/`. There is one
+additional report comparing model acceptance, latency, and cost.
+
+- Active user: a distinct user with at least one valid event on the day.
+- AI interaction: one `ai_response_generated` event.
+- Funnel: started sessions where each stage occurred at least once. Stages are
+  cumulative, but strict timestamp ordering is not enforced.
+- Rejection rate: rejected decisions divided by accepted plus rejected
+  decisions. Calls without a decision are not part of this denominator.
+- High error rate: above the eligible-user mean plus two population standard
+  deviations, with a minimum of 10 events.
+- Usage growth: total valid events on day 3 versus day 1. With three days of
+  data this indicates direction, not a longer-term trend.
+
+As a separate review step, the requested calculations were recomputed directly
+from the raw files rather than from the dbt report views. Counts, percentiles,
+costs, funnel stages, rejection rates, the error-rate threshold, and account
+growth matched the materialized results.
+
+## dbt documentation
+
+`make docs` generates the dbt catalog and serves it at `localhost:8080`. It
+includes model descriptions, column definitions, tests, sources, and the
+lineage from raw tables through the report views. Generated files stay under
+`dbt/target/` and are not committed.
+
+For non-interactive environments, `make docs-generate` builds the same catalog
+without starting the server. CI runs this command after the pipeline build so
+documentation errors fail the workflow.
+
+## Tests
+
+I use two test layers for different purposes.
+
+`make test` runs 12 Pytest tests against a small fixture dataset. These cover
+JSON parsing, rejection lineage, idempotent re-ingestion, raw payload
+preservation, validation reasons, deterministic deduplication, late events,
+missing-cost estimation, session aggregation, daily metrics, and row-count
+reconciliation. The transform fixture invokes a full `dbt build` against a
+temporary DuckDB database.
+
+`make run` executes 41 dbt data tests. They check primary-key uniqueness,
+required columns, non-negative metrics, relationships between events, users,
+and accounts, the grain of daily metrics, and reconciliation across the raw
+and staging layers. dbt reports 59 total build nodes because that total also
+includes 17 models and one seed.
+
+The current tests focus on ingestion and core model invariants. They do not yet
+cover every reporting view with fixed expected results. Another case I would
+add is a numeric property that is present but contains the wrong type; the
+current `try_cast` logic can turn that value into `NULL`.
+
+### Continuous integration
+
+GitHub Actions runs `make test`, `make run`, and `make docs-generate` on pull
+requests and pushes to `main`. The first command tests a controlled fixture;
+the second builds and validates the supplied data; the last confirms that the
+dbt catalog can be generated. The workflow uses Python 3.11, matching the local
+development environment.
+
+## What I found in the sample
+
+- 55.7% of sessions with a `session_started` event reached workflow completion.
+- `gpt-5.5-mini` had similar observed acceptance to `gpt-5.5` in this sample,
+  with lower median latency and average estimated cost.
+- Atlas Legal had the highest explicit rejection rate and lower event volume on
+  the last day than on the first. I would investigate it, but three days is not
+  enough evidence to call it a churn trend.
+- Orbit People had the largest increase in event volume between day 1 and day 3.
+
+## Repository layout
+
+```text
+src/ingest.py                 raw file ingestion
+src/validate.py               validation summary and reconciliation gate
+src/run_analytics.py          terminal output for report views
+src/explore.py                read-only DuckDB browser
+sql/create_tables.sql         raw schema DDL
+dbt/models/staging/           typing, validation, and deduplication
+dbt/models/marts/             dimensions, facts, and daily aggregate
+dbt/models/marts/reports/     requested analytics queries
+dbt/models/schema.yml         model documentation and dbt tests
+tests/                        Pytest fixtures and integration tests
+dashboard/app.py              optional Streamlit dashboard
+docs/design.md                production design notes
+.github/workflows/ci.yml      pull request and main-branch checks
+```
+
+The assignment suggests `src/transform.py` and `sql/marts.sql`. I used the dbt
+equivalent instead: one SQL file per model, with dependencies expressed through
+`ref()`.
 
 ## Submission notes
 
-- **Time spent:** ~6 hours.
-- **Prioritized:** correctness of the raw→rejected→staged accounting, explicit
-  rejection reasons, dbt tests on every model, deterministic reruns.
-- **With more time:** incremental loading (currently full-refresh per file),
-  CI, seat-limit utilization vs `seat_limit`, unit economics (cost per
-  accepted response), a cost anomaly check, richer session ordering in the
-  funnel (strict stage sequence by timestamp).
-- **AI tools:** built with Claude Code. Verified by profiling the raw data
-  independently before writing any transform, reconciling every pipeline count
-  against that profile (725 = 690 + 35), the pytest suite over a hand-built
-  fixture covering each issue class, and 59 dbt tests.
+- Time spent: approximately 6 hours on the initial implementation, followed by
+  a separate review and documentation pass.
+- I prioritized row accounting, explainable rejection reasons, deterministic
+  reruns, and explicit metric definitions.
+- I deliberately skipped orchestration, incremental models, strict funnel
+  ordering, cost anomaly detection, and seat-utilization metrics. They did not
+  seem justified for three local files and the assignment's time limit.
+- I used both Claude Code and Codex. Claude Code assisted with the initial
+  implementation. Codex was used afterwards to review the repository against
+  the assignment, recalculate the analytics independently, identify validation
+  and documentation gaps, add the small GitHub Actions workflow, and complete
+  the dbt documentation. I did not rely on generated output alone: the final
+  checks included the fixture-based Pytest suite, all dbt tests, raw-to-staging
+  row reconciliation, a clean dbt catalog build, and independent comparisons
+  of the requested metrics.

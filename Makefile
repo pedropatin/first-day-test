@@ -2,7 +2,7 @@
 PYTHON ?= python3
 BIN := .venv/bin
 
-.PHONY: setup run test analytics dashboard docs explore clean
+.PHONY: setup run test analytics dashboard docs-generate docs explore clean
 
 setup:
 	$(PYTHON) -m venv .venv
@@ -22,8 +22,11 @@ test:
 dashboard:
 	$(BIN)/streamlit run dashboard/app.py
 
-docs:           ## lineage graph + model/column docs at localhost:8080
-	cd dbt && DBT_PROFILES_DIR=. ../$(BIN)/dbt docs generate && ../$(BIN)/dbt docs serve
+docs-generate:  ## build the dbt catalog without starting a server
+	cd dbt && DBT_PROFILES_DIR=. ../$(BIN)/dbt docs generate --no-partial-parse
+
+docs: docs-generate  ## serve lineage and model/column docs at localhost:8080
+	cd dbt && DBT_PROFILES_DIR=. ../$(BIN)/dbt docs serve
 
 explore:        ## browse the tables in the DuckDB UI (read-only)
 	$(BIN)/python src/explore.py

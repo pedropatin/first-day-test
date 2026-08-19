@@ -50,5 +50,39 @@ sources:
             description: UTC load timestamp.
       - name: raw_accounts
         description: accounts.csv loaded as-is, plus load lineage.
+        columns:
+          - name: account_id
+            description: Account identifier from the source CSV.
+          - name: account_name
+            description: Account display name.
+          - name: plan
+            description: Subscription plan.
+          - name: industry
+            description: Account industry.
+          - name: seat_limit
+            description: Contracted number of seats.
+          - name: created_at
+            description: Account creation timestamp from the source.
+          - name: source_file
+            description: CSV file that supplied the row.
+          - name: ingested_at
+            description: UTC timestamp when the row was loaded.
       - name: raw_users
         description: users.csv loaded as-is, plus load lineage.
+        columns:
+          - name: user_id
+            description: User identifier from the source CSV.
+          - name: account_id
+            description: Account associated with the user.
+          - name: email
+            description: Source email address; retained only in the raw layer.
+          - name: role
+            description: User role within the account.
+          - name: status
+            description: User status from the source.
+          - name: created_at
+            description: User creation timestamp from the source.
+          - name: source_file
+            description: CSV file that supplied the row.
+          - name: ingested_at
+            description: UTC timestamp when the row was loaded.

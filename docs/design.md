@@ -1,27 +1,27 @@
 # Production design note
 
-How this pipeline would evolve from a 3-file local exercise into production.
-The local layering (immutable raw → explainable rejects → tested marts) is
-the part that survives unchanged; everything below is about scale and
-operations around it.
+This note describes how I would extend the local pipeline if it had to support
+production data and users. I would keep the separation between raw data,
+explainable rejections, and tested marts, while changing the storage and
+orchestration around those layers.
 
 ## Batch vs streaming
 
-Start batch. Events land in object storage (S3) as hourly/daily files,
-partitioned by received date; a scheduled job (Airflow/Dagster, or even cron)
-ingests new files and runs `dbt build`. Batch is right as long as the
-freshest consumer is a daily metrics dashboard.
+I would start with batch ingestion. Events would land in object storage as
+hourly or daily files partitioned by received date. A scheduled job would load
+new files and run `dbt build`. This is sufficient while the main consumer is a
+daily metrics dashboard.
 
-Move to streaming only when a consumer needs sub-hour data (e.g. live cost
-guardrails). Then: events → Kinesis/Kafka → micro-batch append into the raw
-layer — the dbt layer doesn't change, only ingestion cadence does. Late
-events are already handled by design (dated by `event_ts`, flagged), so
-lateness doesn't force streaming.
+Streaming would only be justified by a concrete low-latency requirement, such
+as live cost guardrails. In that case, Kafka or Kinesis could write
+micro-batches into the same raw layer. Late events would still be grouped by
+`event_ts` and monitored through the existing late-arrival flag.
 
 ## Schema evolution
 
-The raw layer stores the full original payload (`raw_payload`), so new
-properties arrive without breaking anything — they're just not extracted yet.
+The raw layer stores the full parsed payload (`raw_payload`), so new properties
+can arrive without immediately breaking downstream models; they remain
+available even before they are promoted to typed columns.
 Promoting a new field is a staging-model change plus a dbt test, reviewed
 like any code change. Unknown `event_name` values are quarantined in
 `rejected_events`, which doubles as a discovery queue: a recurring unknown
@@ -31,10 +31,12 @@ registry / event contract validated at the producer side.
 
 ## Data quality and alerting
 
-Same checks, promoted to gates:
+The repository already runs the fixture tests and full local pipeline in
+GitHub Actions for pull requests and pushes to `main`. In production I would
+extend the same checks into operational gates:
 
-- dbt tests run in CI on every PR against a sample, and after every
-  production build; failures block downstream models.
+- dbt tests run after every production build, with failures blocking
+  downstream models.
 - The validation report becomes metrics (reject rate by reason, volume by
   event_name) emitted to monitoring. Alert on reject-rate spikes and volume
   anomalies rather than absolute numbers.
@@ -43,17 +45,18 @@ Same checks, promoted to gates:
 
 ## Backfills and idempotency
 
-Ingestion is already idempotent per source file (delete-by-file + insert),
-and the dbt layer is a pure function of the raw layer. A backfill is:
-re-drop the affected files, re-ingest, `dbt build`. At scale, partition raw
-tables by date and make marts incremental with late-arrival lookback windows
-(e.g. reprocess the trailing 3 days), keeping full-refresh as the recovery
-path.
+The local ingestion is idempotent for each source file: it deletes that file's
+current rows before inserting the replacement. A local backfill is therefore a
+re-ingestion of the affected files followed by `dbt build`. In production I
+would wrap file replacement in a transaction, record a file checksum and load
+status, partition raw tables by date, and make large marts incremental. A
+lookback window would reprocess recent partitions for late arrivals, while a
+full refresh would remain available as a recovery path.
 
 ## PII
 
-Emails are the only PII in this dataset; marts expose only the masked domain
-(`dim_users.email_masked`). In production:
+Emails are the only obvious PII in this dataset. The mart exposes only the
+masked domain (`dim_users.email_masked`). In production I would also:
 
 - classify columns at the source; PII never leaves the raw layer, which
   lives in a restricted schema;
@@ -64,12 +67,11 @@ Emails are the only PII in this dataset; marts expose only the masked domain
 
 ## Cost monitoring
 
-`daily_account_metrics.ai_cost_usd` plus `uncosted_interactions` is the
-foundation: never trust a cost total without knowing how much of it is
-missing. Add: reconciliation of event-reported cost against provider
-invoices (they drift), per-account/model daily anomaly detection (a z-score
-over trailing 14 days is enough to start), and margin views (cost vs plan)
-for finance.
+`daily_account_metrics.ai_cost_usd` and `uncosted_interactions` provide the
+starting point. I would reconcile event-reported cost against provider
+invoices, alert on unusual daily cost by account and model, and add finance
+views that compare model cost with account revenue. Estimated and reported
+costs should remain separate in those views.
 
 ## Exposing the data
 
@@ -83,6 +85,6 @@ in the dbt layer once, not re-derived per dashboard.
 
 - Orchestrator (Makefile is the DAG at this size).
 - Incremental models — full rebuild takes under a second here.
-- CI pipeline, containerization.
+- Containerization.
 - Strict funnel stage ordering by timestamp (flags are "ever happened").
 - Cost anomaly detection and seat-utilization metrics.
