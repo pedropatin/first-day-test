@@ -1,13 +1,31 @@
 # First Day Data Engineering Take-Home
 
-I used Python, DuckDB, and dbt for this assignment. Python is limited to loading
-the source files and producing a small validation report. I kept the business
-logic in dbt so that the transformations, tests, and lineage can be reviewed in
-one place.
+This repository is my solution to First Day's data engineering take-home. It
+turns the supplied event, account, and user files into a small analytics
+warehouse that can be inspected locally, tested end to end, and explored
+through either SQL or a Streamlit dashboard.
+
+I used Python for the parts that are naturally file-oriented: reading JSONL and
+CSV input, preserving malformed records, and writing the validation summary.
+DuckDB keeps the project self-contained, while dbt owns the transformations,
+business definitions, tests, and lineage. This split makes it possible to trace
+a dashboard number back through a report view and its underlying models without
+having the same calculation implemented in several places.
 
 ## Running the project
 
-Python 3.10–3.13 and `make` are required.
+The project is tested with Python 3.11 and supports Python 3.10–3.13. It also
+requires `make` and the standard-library `venv` module. The commands below are
+intended for macOS, Linux, or WSL; no external services or credentials are
+needed. If your `python3` command points to a different version, select the
+interpreter when creating the environment:
+
+```bash
+make setup PYTHON=python3.11
+```
+
+Once the environment exists, the remaining commands use `.venv` directly, so
+activating it is optional.
 
 ```bash
 make setup       # create .venv and install dependencies
@@ -19,9 +37,10 @@ make docs        # generate and serve dbt documentation at localhost:8080
 make explore     # open the DuckDB UI in read-only mode
 ```
 
-For a first run, use `make setup` followed by `make run`. On the supplied data,
-the pipeline produces 690 clean events and 35 rejected rows from 725 input
-lines.
+For a first run, use `make setup` followed by `make run`. The latter command
+loads the raw files, builds every dbt model, runs the dbt tests, and writes
+`data/validation_report.json`. On the supplied data, the pipeline produces 690
+clean events and 35 rejected rows from 725 input lines.
 
 ## Pipeline structure
 
@@ -46,10 +65,13 @@ marts   dim_accounts, dim_users, fact_ai_interactions,
 reports rpt_daily_active_users, rpt_session_funnel, ...
 ```
 
-I kept the complete parsed JSON payload in the raw event table, together with
-the source filename, line number, and load timestamp. Lines that cannot be
-parsed are stored separately with their original text. This gives both clean
-and rejected records a path back to the input file.
+The layers have deliberately narrow responsibilities. The raw schema records
+what arrived, staging decides whether an event is usable, marts define stable
+business entities and grains, and report views answer the assignment's
+analytics questions. I kept the complete parsed JSON payload in the raw event
+table, together with the source filename, line number, and load timestamp.
+Lines that cannot be parsed are stored separately with their original text.
+This gives both clean and rejected records a path back to the input file.
 
 On a rerun, ingestion replaces the rows associated with each source file before
 loading it again. That is enough to make this small file-based pipeline
@@ -136,12 +158,51 @@ from the raw files rather than from the dbt report views. Counts, percentiles,
 costs, funnel stages, rejection rates, the error-rate threshold, and account
 growth matched the materialized results.
 
+## Dashboard
+
+The optional dashboard is a compact way to review the output after running the
+pipeline. Start it with:
+
+```bash
+make dashboard
+```
+
+![First Light dashboard showing the summary metrics and session conversion funnel](dashboard/assets/dashboard_overview.png)
+
+Streamlit serves the app at `http://localhost:8501`. The dashboard opens the
+local DuckDB database in read-only mode and queries the marts and report views
+that dbt has already built. It is intentionally a presentation layer: metric
+definitions stay in SQL, rather than being reimplemented in Python just for the
+charts.
+
+The top of the page summarizes active users, sessions, AI interactions,
+estimated AI cost, and workflow completion. The remaining detail is organized
+into five tabs:
+
+- **Funnel** follows sessions from start through context selection, AI response,
+  export, and completion. It makes the largest stage-to-stage losses visible.
+- **Usage & growth** shows daily active users and compares each account's event
+  volume on day 1 and day 3.
+- **Cost** breaks estimated AI spend down by date, account, and model, with the
+  underlying values available in a table.
+- **Models** compares median and p95 latency, observed acceptance rate, and the
+  interaction mix by workflow and model.
+- **Quality & risk** brings together rejected responses, rejection reasons, and
+  users whose error rate crosses the statistical threshold defined in the
+  reporting model.
+
+Colors remain consistent for each account across charts, and query results are
+cached during the Streamlit session so switching tabs does not repeatedly scan
+the database. The dashboard is useful for quickly spotting areas worth
+investigating, but the report views remain the source of truth for exact values.
+
 ## dbt documentation
 
-`make docs` generates the dbt catalog and serves it at `localhost:8080`. It
-includes model descriptions, column definitions, tests, sources, and the
-lineage from raw tables through the report views. Generated files stay under
-`dbt/target/` and are not committed.
+`make docs` generates the dbt catalog and serves it at `http://localhost:8080`.
+This is the best place to inspect how a particular metric is built: the catalog
+includes descriptions for models and columns, attached tests, source tables,
+and lineage from ingestion through the final report views. Generated files stay
+under `dbt/target/` and are not committed.
 
 For non-interactive environments, `make docs-generate` builds the same catalog
 without starting the server. CI runs this command after the pipeline build so
