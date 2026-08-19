@@ -65,6 +65,8 @@ EVENT_LINES = [
     _evt("e14", "session_started", user="user_9"),
     _evt("e15", "session_started", user="user_3"),  # user_3 belongs to acct_B
     _evt("e16", "session_started", ts="2026-08-01 99:99:99"),
+    _evt("e17", "ai_response_generated",
+         props={"model": "m1", "latency_ms": "fast"}),
     _evt(None, "session_started"),
     # ingest-level rejects
     "{not valid json",

@@ -1,5 +1,6 @@
 """Build the dbt models against the fixture dataset and check the outputs."""
 
+import json
 import os
 import subprocess
 
@@ -54,6 +55,7 @@ def test_every_rejection_reason_is_assigned(built_db):
     assert reasons["e14"] == "unknown_user"
     assert reasons["e15"] == "user_account_mismatch"
     assert reasons["e16"] == "unparseable_event_ts"
+    assert reasons["e17"] == "invalid_property_type"
     assert reasons["e06"] == "duplicate_event_id"
 
 
@@ -86,6 +88,15 @@ def test_missing_cost_stays_null_but_gets_estimated(built_db):
     assert is_estimated
 
 
+def test_wrong_property_type_is_rejected_instead_of_becoming_null(built_db):
+    reason, raw_data = built_db.execute(
+        """select rejection_reason, raw_data
+           from staging.rejected_events where event_id = 'e17'"""
+    ).fetchone()
+    assert reason == "invalid_property_type"
+    assert json.loads(raw_data)["properties"]["latency_ms"] == "fast"
+
+
 def test_session_funnel_flags(built_db):
     row = built_db.execute(
         """select has_session_started, has_prompt_submitted, has_ai_response,
@@ -113,3 +124,38 @@ def test_row_count_reconciliation(built_db):
                   (select count(*) from staging.rejected_events)"""
     ).fetchone()
     assert raw + malformed == staged + rejected
+
+
+def test_session_funnel_report_values(built_db):
+    rows = built_db.execute(
+        """select stage, sessions, pct_of_started
+           from reports.rpt_session_funnel order by stage_order"""
+    ).fetchall()
+    assert rows == [
+        ("session_started", 2, 100.0),
+        ("prompt_submitted", 2, 100.0),
+        ("ai_response_generated", 2, 100.0),
+        ("response_accepted", 1, 50.0),
+        ("workflow_completed", 1, 50.0),
+    ]
+
+
+def test_latency_report_values(built_db):
+    row = built_db.execute(
+        """select model, interactions, median_latency_ms, p95_latency_ms
+           from reports.rpt_latency_by_model"""
+    ).fetchone()
+    assert row == ("m1", 2, 750.0, 975.0)
+
+
+def test_daily_cost_report_values(built_db):
+    reported, estimated, interactions, uncosted = built_db.execute(
+        """select ai_cost_usd, ai_cost_usd_estimated,
+                  ai_interactions, uncosted_interactions
+           from reports.rpt_daily_cost_by_account
+           where account_id = 'acct_A'"""
+    ).fetchone()
+    assert reported == pytest.approx(0.01)
+    assert estimated == pytest.approx(0.0113)
+    assert interactions == 2
+    assert uncosted == 1

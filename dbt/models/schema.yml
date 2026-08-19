@@ -72,7 +72,9 @@ models:
       - name: user_home_account_id
         description: Account associated with the user in raw user metadata.
       - name: rejection_reason
-        description: First validation failure, or duplicate marker; null when valid.
+        description: >
+          First validation failure, including invalid property types, or the
+          duplicate marker; null when valid.
 
   - name: stg_events
     description: >

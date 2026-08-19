@@ -5,7 +5,7 @@ from ingest import run_ingest
 
 def test_loads_all_parseable_events(raw_dir, db_path):
     stats = run_ingest(raw_dir, db_path)
-    assert stats.events_loaded == 18  # 20 lines - 2 unparseable
+    assert stats.events_loaded == 19  # 21 lines - 2 unparseable
     assert stats.lines_rejected == 2
     assert stats.accounts_loaded == 2
     assert stats.users_loaded == 3
@@ -29,7 +29,7 @@ def test_reingest_is_idempotent(raw_dir, db_path):
     run_ingest(raw_dir, db_path)
     run_ingest(raw_dir, db_path)
     con = duckdb.connect(str(db_path), read_only=True)
-    assert con.execute("select count(*) from raw.raw_events").fetchone()[0] == 18
+    assert con.execute("select count(*) from raw.raw_events").fetchone()[0] == 19
     assert con.execute("select count(*) from raw.raw_ingest_rejections").fetchone()[0] == 2
     assert con.execute("select count(*) from raw.raw_accounts").fetchone()[0] == 2
 

@@ -34,6 +34,25 @@ with typed as (
         json_extract_string(properties, '$.reason')                as rejected_reason_text,
         json_extract_string(properties, '$.invite_channel')        as invite_channel,
 
+        -- Missing optional properties and explicit JSON nulls are allowed.
+        -- A present value must still match its contract; otherwise try_cast
+        -- would silently turn bad input (for example "fast" latency) into NULL.
+        coalesce(json_type(properties, '$.prompt_tokens')
+                 not in ('BIGINT', 'UBIGINT', 'NULL'), false)
+        or coalesce(json_type(properties, '$.completion_tokens')
+                    not in ('BIGINT', 'UBIGINT', 'NULL'), false)
+        or coalesce(json_type(properties, '$.latency_ms')
+                    not in ('BIGINT', 'UBIGINT', 'NULL'), false)
+        or coalesce(json_type(properties, '$.duration_ms')
+                    not in ('BIGINT', 'UBIGINT', 'NULL'), false)
+        or coalesce(json_type(properties, '$.prompt_length_chars')
+                    not in ('BIGINT', 'UBIGINT', 'NULL'), false)
+        or coalesce(json_type(properties, '$.cost_usd')
+                    not in ('BIGINT', 'UBIGINT', 'DOUBLE', 'NULL'), false)
+        or coalesce(json_type(properties, '$.accepted')
+                    not in ('BOOLEAN', 'NULL'), false)
+            as has_invalid_property_type,
+
         raw_payload,
         source_file,
         line_number,
@@ -72,6 +91,8 @@ classified as (
                 then 'missing_session_id'
 
             -- 3. metric sanity
+            when typed.has_invalid_property_type
+                then 'invalid_property_type'
             when least(
                     coalesce(typed.prompt_tokens, 0),
                     coalesce(typed.completion_tokens, 0),
@@ -113,7 +134,7 @@ deduped as (
 )
 
 select
-    * exclude (rejection_reason, copy_rank),
+    * exclude (has_invalid_property_type, rejection_reason, copy_rank),
     coalesce(
         rejection_reason,
         case when copy_rank > 1 then 'duplicate_event_id' end

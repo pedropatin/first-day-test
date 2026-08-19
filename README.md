@@ -39,30 +39,21 @@ make explore     # open the DuckDB UI in read-only mode
 
 For a first run, use `make setup` followed by `make run`. The latter command
 loads the raw files, builds every dbt model, runs the dbt tests, and writes
-`data/validation_report.json`. On the supplied data, the pipeline produces 690
-clean events and 35 rejected rows from 725 input lines.
+`data/processed/validation_report.md`. On the supplied data, the pipeline
+produces 690 clean events and 35 rejected rows from 725 input lines.
 
 ## Pipeline structure
 
-```text
-data/raw/*.jsonl,*.csv
-        |
-        | src/ingest.py
-        v
-raw     raw_events, raw_ingest_rejections, raw_accounts, raw_users
-        |
-        | dbt staging models
-        v
-staging stg_events, rejected_events
-        |
-        | dbt mart models
-        v
-marts   dim_accounts, dim_users, fact_ai_interactions,
-        fact_sessions, daily_account_metrics
-        |
-        | dbt report models
-        v
-reports rpt_daily_active_users, rpt_session_funnel, ...
+```mermaid
+flowchart TD
+    files["JSONL events + CSV metadata"] --> ingest["Python ingestion"]
+    ingest --> raw["raw<br/>events, accounts, users and parse failures"]
+    raw --> classify["dbt validation, typing and deduplication"]
+    classify --> rejected["rejected_events<br/>reason + source lineage"]
+    classify --> staging["stg_events<br/>clean event stream"]
+    staging --> marts["marts<br/>dimensions, interaction and session facts, daily metrics"]
+    marts --> reports["reports<br/>nine analytics views"]
+    reports --> consumers["CLI analytics + Streamlit dashboard"]
 ```
 
 The layers have deliberately narrow responsibilities. The raw schema records
@@ -90,13 +81,16 @@ checks run in this order:
 | 3 | `unknown_event_name` | value is outside the expected event-name seed |
 | 4 | `missing_account_id` / `missing_user_id` | required ownership fields are absent |
 | 5 | `missing_session_id` | session is absent outside invite/signup events |
-| 6 | `negative_metric_value` | token, latency, cost, or duration value is negative |
-| 7 | `unknown_account` / `unknown_user` | metadata reference does not exist |
-| 8 | `user_account_mismatch` | user belongs to a different account |
-| 9 | `duplicate_event_id` | another valid copy of the event was kept |
+| 6 | `invalid_property_type` | a present numeric or boolean property has the wrong JSON type |
+| 7 | `negative_metric_value` | token, latency, cost, or duration value is negative |
+| 8 | `unknown_account` / `unknown_user` | metadata reference does not exist |
+| 9 | `user_account_mismatch` | user belongs to a different account |
+| 10 | `duplicate_event_id` | another valid copy of the event was kept |
 
 Malformed JSON and non-object JSON values are rejected during ingestion before
-these staging checks.
+these staging checks. Optional properties may be absent or explicitly `null`,
+but a value that is present must match its expected JSON type. This prevents a
+failed `try_cast` from silently turning malformed input into a valid null.
 
 For duplicate IDs, I keep the first record by
 `(received_ts, source_file, line_number)`. I do not reject late events: an event
@@ -212,12 +206,13 @@ documentation errors fail the workflow.
 
 I use two test layers for different purposes.
 
-`make test` runs 12 Pytest tests against a small fixture dataset. These cover
+`make test` runs 16 Pytest tests against a small fixture dataset. These cover
 JSON parsing, rejection lineage, idempotent re-ingestion, raw payload
 preservation, validation reasons, deterministic deduplication, late events,
-missing-cost estimation, session aggregation, daily metrics, and row-count
-reconciliation. The transform fixture invokes a full `dbt build` against a
-temporary DuckDB database.
+invalid property types, missing-cost estimation, session aggregation, daily
+metrics, row-count reconciliation, and fixed expected results for the funnel,
+latency, and cost reports. The transform fixture invokes a full `dbt build`
+against a temporary DuckDB database.
 
 `make run` executes 41 dbt data tests. They check primary-key uniqueness,
 required columns, non-negative metrics, relationships between events, users,
@@ -225,10 +220,9 @@ and accounts, the grain of daily metrics, and reconciliation across the raw
 and staging layers. dbt reports 59 total build nodes because that total also
 includes 17 models and one seed.
 
-The current tests focus on ingestion and core model invariants. They do not yet
-cover every reporting view with fixed expected results. Another case I would
-add is a numeric property that is present but contains the wrong type; the
-current `try_cast` logic can turn that value into `NULL`.
+Three representative reporting views have fixed expected-result tests. The
+remaining views are covered by the full dbt build, schema tests, and the
+independent raw-file calculation review described above.
 
 ### Continuous integration
 
